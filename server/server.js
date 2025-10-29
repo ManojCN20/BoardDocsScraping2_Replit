@@ -111,7 +111,6 @@ app.get("/api/proxy-download", async (req, res) => {
 
     const { statusCode, body, headers: responseHeaders } = await undiciRequest(url, { 
       headers,
-      maxRedirections: 5,
     });
     
     if (statusCode !== 200) {
