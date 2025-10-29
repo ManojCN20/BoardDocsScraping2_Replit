@@ -47,7 +47,7 @@ function App() {
     try {
       if (!window.showDirectoryPicker) {
         alert(
-          "Your browser doesn't support the File System Access API. Files will download to your default Downloads folder instead.",
+          "Your browser doesn't support the File System Access API. Files will download to your default Downloads folder instead."
         );
         return;
       }
@@ -117,7 +117,7 @@ function App() {
           });
           const meetingDir = await yearDir.getDirectoryHandle(
             fileInfo.meetingId,
-            { create: true },
+            { create: true }
           );
           const fileHandle = await meetingDir.getFileHandle(filename, {
             create: true,
@@ -204,7 +204,7 @@ function App() {
 
   function connectSSE(jobId) {
     const es = new EventSource(
-      `/api/crawl/stream?jobId=${encodeURIComponent(jobId)}`,
+      `/api/crawl/stream?jobId=${encodeURIComponent(jobId)}`
     );
 
     es.addEventListener("open", () => {
@@ -291,14 +291,14 @@ function App() {
                 phase === "done"
                   ? "#dcfce7"
                   : phase === "idle"
-                    ? "#e2e8f0"
-                    : "#dbeafe",
+                  ? "#e2e8f0"
+                  : "#dbeafe",
               color:
                 phase === "done"
                   ? "#166534"
                   : phase === "idle"
-                    ? "#334155"
-                    : "#1e40af",
+                  ? "#334155"
+                  : "#1e40af",
             }}
           >
             {phase}
