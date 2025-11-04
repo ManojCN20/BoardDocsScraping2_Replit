@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 function App() {
-  const [state, setState] = useState("pa");
+  const [state, setState] = useState("");
   const [district, setDistrict] = useState("");
   const [year, setYear] = useState("all");
   const [submitting, setSubmitting] = useState(false);
@@ -321,9 +321,7 @@ function App() {
           }}
         >
           <div>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>
-              State Code
-            </label>
+            <label style={{ fontSize: 13, fontWeight: 600 }}>State Code</label>
             <input
               style={{
                 marginTop: 6,
