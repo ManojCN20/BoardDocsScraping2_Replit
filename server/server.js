@@ -19,7 +19,8 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/crawl", async (req, res) => {
-  const { district, year } = req.body || {};
+  const { state, district, year } = req.body || {};
+  if (!state) return res.status(400).json({ error: "state required" });
   if (!district) return res.status(400).json({ error: "district required" });
 
   const jobId = Math.random().toString(36).slice(2);
@@ -31,6 +32,7 @@ app.post("/api/crawl", async (req, res) => {
 
   // fire and forget
   startBoardDocsCrawl({
+    state,
     district,
     year: year || "all",
     onLog: (message) => emitter.emit("log", { message }),

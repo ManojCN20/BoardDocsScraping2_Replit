@@ -265,6 +265,7 @@ async function primeSessionAgenda(page, mframe, meetingId) {
 
 /* ---------- Exported entry ---------- */
 export async function startBoardDocsCrawl({
+  state = "pa",
   district,
   year = "all",
   outDir = `downloads_${district}`,
@@ -276,7 +277,7 @@ export async function startBoardDocsCrawl({
   onSummary = () => {},
 }) {
   const RUN_START = Date.now();
-  const START_URL = `https://go.boarddocs.com/pa/${district}/Board.nsf/Public`;
+  const START_URL = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Public`;
   
   onLog(`📡 Files will download directly to your browser`);
 
@@ -337,7 +338,7 @@ export async function startBoardDocsCrawl({
 
     await agendaQueue.addAll(
       meetings.map((m) => async () => {
-        const url = `https://go.boarddocs.com/pa/${district}/Board.nsf/Download-AgendaDetailed?open&id=${encodeURIComponent(
+        const url = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Download-AgendaDetailed?open&id=${encodeURIComponent(
           m.id
         )}&${Math.random()}`;
         try {
