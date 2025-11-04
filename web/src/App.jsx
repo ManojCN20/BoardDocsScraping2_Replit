@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 function App() {
+  const [state, setState] = useState("pa");
   const [district, setDistrict] = useState("");
   const [year, setYear] = useState("all");
   const [submitting, setSubmitting] = useState(false);
@@ -186,6 +187,7 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          state,
           district,
           year,
         }),
@@ -313,11 +315,30 @@ function App() {
             boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
             padding: 16,
             display: "grid",
-            gridTemplateRows: "1fr 70px 110px",
+            gridTemplateRows: "1fr 1fr 70px 110px",
             gap: 12,
             marginBottom: 16,
           }}
         >
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 600 }}>
+              State Code
+            </label>
+            <input
+              style={{
+                marginTop: 6,
+                width: "98%",
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                padding: "10px 12px",
+              }}
+              placeholder="e.g., pa, ca, tx"
+              value={state}
+              onChange={(e) => setState(e.target.value.trim().toLowerCase())}
+              required
+            />
+          </div>
+
           <div>
             <label style={{ fontSize: 13, fontWeight: 600 }}>
               District Code
