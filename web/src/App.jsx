@@ -195,7 +195,7 @@ function App() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { jobId } = await res.json();
       setJobId(jobId);
-      addLog(`🚀 Started job ${jobId} for ${district}/${year}`);
+      addLog(`🚀 Started job ${jobId} for ${state}/${district}/${year}`);
       connectSSE(jobId);
     } catch (e) {
       addLog(`❌ Failed to start: ${e.message}`);
