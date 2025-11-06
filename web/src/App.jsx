@@ -26,15 +26,43 @@ function App() {
   const [downloadEndTime, setDownloadEndTime] = useState(null);
   const [finalDownloadTime, setFinalDownloadTime] = useState(null);
   const [finalAvgSpeed, setFinalAvgSpeed] = useState(null);
+  const [totalBytesDownloaded, setTotalBytesDownloaded] = useState(0);
   const downloadQueueRef = useRef([]);
   const activeDownloadsRef = useRef(0);
   const maxConcurrentDownloads = 8;
   const totalFilesExpectedRef = useRef(0);
   const downloadStartTimeRef = useRef(null);
   const filesDownloadedRef = useRef(0);
+  const totalBytesDownloadedRef = useRef(0);
   // const API_BASE = import.meta.env.VITE_API_BASE || "";
 
   const logRef = useRef(null);
+
+  // Helper function to format time in hh:mm:ss format
+  function formatTime(seconds) {
+    if (!seconds || seconds <= 0) return "00:00:00";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  // Calculate current download elapsed time
+  const [currentDownloadTime, setCurrentDownloadTime] = useState("00:00:00");
+
+  // Update download time every second while downloading
+  useEffect(() => {
+    if (downloadStartTimeRef.current && phase !== 'idle' && phase !== 'done') {
+      const timer = setInterval(() => {
+        const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000;
+        setCurrentDownloadTime(formatTime(elapsed));
+      }, 1000);
+      return () => clearInterval(timer);
+    } else if (downloadEndTime && downloadStartTimeRef.current) {
+      setCurrentDownloadTime(formatTime((downloadEndTime - downloadStartTimeRef.current) / 1000));
+    }
+  }, [downloadStartTime, downloadEndTime, phase]);
+
   useEffect(() => {
     if (autoScroll && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -102,18 +130,29 @@ function App() {
       activeDownloadsRef.current++;
 
       downloadFileWithStructure(jobId, fileInfo)
-        .then(() => {
+        .then((bytesDownloaded) => {
           setFilesDownloaded((prev) => {
             const newCount = prev + 1;
             filesDownloadedRef.current = newCount; // Keep ref in sync
-            // Update download speed
-            if (downloadStartTimeRef.current) {
-              const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000; // seconds
-              const speed = newCount / elapsed;
-              setDownloadSpeed(speed);
-            }
             return newCount;
           });
+          
+          // Track bytes and calculate speed in MB/s
+          if (bytesDownloaded) {
+            setTotalBytesDownloaded((prev) => {
+              const newTotal = prev + bytesDownloaded;
+              totalBytesDownloadedRef.current = newTotal;
+              
+              // Update download speed in MB/s
+              if (downloadStartTimeRef.current) {
+                const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000; // seconds
+                const megabytes = newTotal / (1024 * 1024);
+                const speed = megabytes / elapsed;
+                setDownloadSpeed(speed);
+              }
+              return newTotal;
+            });
+          }
         })
         .catch(() => {
           setFailed((prev) => prev + 1);
@@ -167,10 +206,10 @@ function App() {
           const blob = await response.blob();
           await writable.write(blob);
           await writable.close();
-          return;
+          return blob.size;
         } else {
           fallbackDownload(proxyUrl, filename);
-          return;
+          return 0; // Can't track size for fallback downloads
         }
       } catch (err) {
         if (attempt === retries) {
@@ -219,11 +258,14 @@ function App() {
     setDownloadEndTime(null);
     setFinalDownloadTime(null);
     setFinalAvgSpeed(null);
+    setTotalBytesDownloaded(0);
+    setCurrentDownloadTime("00:00:00");
     downloadQueueRef.current = [];
     activeDownloadsRef.current = 0;
     totalFilesExpectedRef.current = 0;
     downloadStartTimeRef.current = null;
     filesDownloadedRef.current = 0;
+    totalBytesDownloadedRef.current = 0;
 
     if (selectedYears.length === 0) {
       addLog("⚠️ Please select at least one year");
@@ -264,8 +306,11 @@ function App() {
       addLog("🔌 Connected to job stream.");
     });
 
-    es.addEventListener("error", () => {
-      addLog("⚠️ Stream error/closed.");
+    es.addEventListener("error", (evt) => {
+      // Only log error if it's not a normal close (which happens after summary)
+      if (es.readyState !== EventSource.CLOSED) {
+        addLog("⚠️ Stream connection error.");
+      }
       es.close();
       setSubmitting(false);
     });
@@ -324,9 +369,12 @@ function App() {
             setDownloadEndTime(endTime);
             if (downloadStartTimeRef.current) {
               const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
-              const finalDownloaded = filesDownloadedRef.current;
+              const megabytesDownloaded = totalBytesDownloadedRef.current / (1024 * 1024);
               setFinalDownloadTime(totalTime);
-              setFinalAvgSpeed(finalDownloaded / totalTime);
+              // Guard against division by zero
+              if (totalTime > 0) {
+                setFinalAvgSpeed(megabytesDownloaded / totalTime);
+              }
             }
             
             setEndedAt(s.endedAt || null);
@@ -575,7 +623,7 @@ function App() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(5, 1fr)",
+            gridTemplateColumns: "repeat(6, 1fr)",
             gap: 12,
             marginBottom: 16,
           }}
@@ -586,7 +634,11 @@ function App() {
           <StatCard label="Failed" value={failed} />
           <StatCard 
             label="Speed" 
-            value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(1)}/s` : "—"} 
+            value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(2)} MB/s` : "—"} 
+          />
+          <StatCard 
+            label="Download Time" 
+            value={currentDownloadTime} 
           />
         </section>
 
@@ -762,16 +814,16 @@ function App() {
             <div>
               Download Time: {
                 finalDownloadTime !== null
-                  ? `${finalDownloadTime.toFixed(1)}s`
+                  ? formatTime(finalDownloadTime)
                   : downloadStartTime && phase !== "idle"
-                  ? `${((Date.now() - downloadStartTime) / 1000).toFixed(1)}s (ongoing)`
+                  ? `${formatTime((Date.now() - downloadStartTime) / 1000)} (ongoing)`
                   : "—"
               }
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
               {phase === "done" && filesDownloaded > 0 && finalAvgSpeed !== null && (
                 <span>
-                  Avg Speed: {finalAvgSpeed.toFixed(2)} files/sec
+                  Avg Speed: {finalAvgSpeed.toFixed(2)} MB/s
                   {failed > 0 && ` • ${failed} failed`}
                 </span>
               )}

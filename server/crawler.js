@@ -379,10 +379,17 @@ export async function startBoardDocsCrawl({
     await agendaQueue.onIdle();
 
     // ---- Step 2: Dedup and send files to frontend ----
+    const rawCount = allItems.length;
     const byUrl = new Map();
     for (const it of allItems) if (!byUrl.has(it.url)) byUrl.set(it.url, it);
     const finalItems = Array.from(byUrl.values());
-    onLog(`🔎 Files discovered: ${finalItems.length}`);
+    const duplicatesRemoved = rawCount - finalItems.length;
+    
+    if (duplicatesRemoved > 0) {
+      onLog(`🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`);
+    } else {
+      onLog(`🔎 Files discovered: ${finalItems.length}`);
+    }
     onLog(`📡 Sending file list to browser for direct download...`);
 
     let sent = 0;
