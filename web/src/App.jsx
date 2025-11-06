@@ -186,14 +186,17 @@ function App() {
 
       downloadFileWithStructure(jobId, fileInfo)
         .then((bytesDownloaded) => {
-          setFilesDownloaded((prev) => {
-            const newCount = prev + 1;
-            filesDownloadedRef.current = newCount; // Keep ref in sync
-            return newCount;
-          });
+          // Only count if file was actually downloaded (not skipped)
+          if (bytesDownloaded !== -1) {
+            setFilesDownloaded((prev) => {
+              const newCount = prev + 1;
+              filesDownloadedRef.current = newCount; // Keep ref in sync
+              return newCount;
+            });
+          }
           
-          // Track bytes and calculate speed in MB/s
-          if (bytesDownloaded) {
+          // Track bytes and calculate speed in MB/s (skip if file was skipped or fallback)
+          if (bytesDownloaded && bytesDownloaded > 0) {
             setTotalBytesDownloaded((prev) => {
               const newTotal = prev + bytesDownloaded;
               totalBytesDownloadedRef.current = newTotal;
@@ -247,6 +250,20 @@ function App() {
             fileInfo.meetingId,
             { create: true }
           );
+          
+          // Check if file already exists and has content
+          let fileExists = false;
+          try {
+            const existingHandle = await meetingDir.getFileHandle(filename);
+            const existingFile = await existingHandle.getFile();
+            if (existingFile.size > 0) {
+              fileExists = true;
+              return -1; // Return -1 to indicate file was skipped (already exists)
+            }
+          } catch (e) {
+            // File doesn't exist, continue with download
+          }
+          
           const fileHandle = await meetingDir.getFileHandle(filename, {
             create: true,
           });
