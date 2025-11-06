@@ -19,7 +19,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/crawl", async (req, res) => {
-  const { state, district, year } = req.body || {};
+  const { state, district, years } = req.body || {};
   if (!state) return res.status(400).json({ error: "state required" });
   if (!district) return res.status(400).json({ error: "district required" });
 
@@ -34,7 +34,7 @@ app.post("/api/crawl", async (req, res) => {
   startBoardDocsCrawl({
     state,
     district,
-    year: year || "all",
+    years: years || ["all"],
     onLog: (message) => emitter.emit("log", { message }),
     onProgress: (p) => emitter.emit("progress", p),
     onFile: (f) => emitter.emit("file", f),

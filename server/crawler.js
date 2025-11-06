@@ -160,7 +160,7 @@ function extractFileLinksFromAgendaHTML(html, baseUrl) {
 }
 
 /* ---------- Discovery (UI once) ---------- */
-async function collectMeetings(browser, START_URL, YEAR_ARG) {
+async function collectMeetings(browser, START_URL, YEARS_ARG) {
   const context = await browser.newContext();
   const page = await context.newPage();
   await gotoWithRetries(page, START_URL);
@@ -223,7 +223,7 @@ async function collectMeetings(browser, START_URL, YEAR_ARG) {
       .catch(() => []);
 
     const filtered = meetings.filter(
-      (m) => m.id && (YEAR_ARG === "all" || m.year === YEAR_ARG)
+      (m) => m.id && (YEARS_ARG.includes("all") || YEARS_ARG.includes(m.year))
     );
     all.push(...filtered);
   }
@@ -267,7 +267,7 @@ async function primeSessionAgenda(page, mframe, meetingId) {
 export async function startBoardDocsCrawl({
   state = "pa",
   district,
-  year = "all",
+  years = ["all"],
   outDir = `downloads_${district}`,
   headless = true,
   dlConcurrency = 16,
@@ -282,7 +282,8 @@ export async function startBoardDocsCrawl({
   onLog(`📡 Files will download directly to your browser`);
 
   try {
-    onLog(`🚀 Opening: ${START_URL}  (year: ${year})`);
+    const yearStr = years.includes("all") ? "all years" : years.join(", ");
+    onLog(`🚀 Opening: ${START_URL}  (years: ${yearStr})`);
     const browser = await chromium.launch({
       headless,
       executablePath: process.env.CHROMIUM_PATH || '/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium',
@@ -297,7 +298,7 @@ export async function startBoardDocsCrawl({
     const { page, context, meetings, mframe } = await collectMeetings(
       browser,
       START_URL,
-      year
+      years
     );
     onLog(`🗓️ Meetings discovered: ${meetings.length}`);
     onProgress({

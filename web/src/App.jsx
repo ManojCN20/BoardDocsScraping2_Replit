@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 function App() {
   const [state, setState] = useState("");
   const [district, setDistrict] = useState("");
-  const [year, setYear] = useState("all");
+  const [selectedYears, setSelectedYears] = useState(["all"]);
   const [submitting, setSubmitting] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [phase, setPhase] = useState("idle");
@@ -42,6 +42,21 @@ function App() {
 
   function addLog(message) {
     setLogLines((prev) => [...prev, message]);
+  }
+
+  function handleYearToggle(yearValue) {
+    setSelectedYears((prev) => {
+      if (yearValue === "all") {
+        return prev.includes("all") ? [] : ["all"];
+      } else {
+        const newSelection = prev.filter((y) => y !== "all");
+        if (newSelection.includes(yearValue)) {
+          return newSelection.filter((y) => y !== yearValue);
+        } else {
+          return [...newSelection, yearValue];
+        }
+      }
+    });
   }
 
   async function selectDownloadDirectory() {
@@ -182,6 +197,13 @@ function App() {
     setEndedAt(null);
     setElapsed(null);
 
+    if (selectedYears.length === 0) {
+      addLog("⚠️ Please select at least one year");
+      setSubmitting(false);
+      setPhase("idle");
+      return;
+    }
+
     try {
       const res = await fetch("/api/crawl", {
         method: "POST",
@@ -189,13 +211,14 @@ function App() {
         body: JSON.stringify({
           state,
           district,
-          year,
+          years: selectedYears,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { jobId } = await res.json();
       setJobId(jobId);
-      addLog(`🚀 Started job ${jobId} for ${state}/${district}/${year}`);
+      const yearStr = selectedYears.includes("all") ? "all years" : selectedYears.join(", ");
+      addLog(`🚀 Started job ${jobId} for ${state}/${district} - ${yearStr}`);
       connectSSE(jobId);
     } catch (e) {
       addLog(`❌ Failed to start: ${e.message}`);
@@ -315,7 +338,7 @@ function App() {
             boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
             padding: 16,
             display: "grid",
-            gridTemplateRows: "1fr 1fr 70px 110px",
+            gridTemplateRows: "auto auto auto auto auto",
             gap: 12,
             marginBottom: 16,
           }}
@@ -357,25 +380,55 @@ function App() {
           </div>
 
           <div>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>Year</label>
-            <select
+            <label style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: "block" }}>
+              Year(s) - Select multiple
+            </label>
+            <div
               style={{
-                marginTop: 6,
-                width: "99%",
+                maxHeight: 180,
+                overflowY: "auto",
                 border: "1px solid #e2e8f0",
                 borderRadius: 12,
-                padding: "10px 12px",
+                padding: "8px",
+                background: "#fff",
               }}
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              required
             >
               {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
+                <label
+                  key={y}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    borderRadius: 6,
+                    transition: "background 0.15s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedYears.includes(y)}
+                    onChange={() => handleYearToggle(y)}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      cursor: "pointer",
+                    }}
+                  />
+                  <span style={{ fontSize: 14, color: "#334155" }}>
+                    {y === "all" ? "All years" : y}
+                  </span>
+                </label>
               ))}
-            </select>
+            </div>
+            {selectedYears.length === 0 && (
+              <small style={{ color: "#ef4444", fontSize: 12, marginTop: 4, display: "block" }}>
+                Please select at least one year
+              </small>
+            )}
           </div>
           <div>
             <label
