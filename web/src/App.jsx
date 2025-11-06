@@ -21,9 +21,17 @@ function App() {
   const [autoDownload, setAutoDownload] = useState(true);
   const [downloadDir, setDownloadDir] = useState(null);
   const [downloadDirName, setDownloadDirName] = useState("");
+  const [downloadSpeed, setDownloadSpeed] = useState(0);
+  const [downloadStartTime, setDownloadStartTime] = useState(null);
+  const [downloadEndTime, setDownloadEndTime] = useState(null);
+  const [finalDownloadTime, setFinalDownloadTime] = useState(null);
+  const [finalAvgSpeed, setFinalAvgSpeed] = useState(null);
   const downloadQueueRef = useRef([]);
   const activeDownloadsRef = useRef(0);
-  const maxConcurrentDownloads = 4;
+  const maxConcurrentDownloads = 8;
+  const totalFilesExpectedRef = useRef(0);
+  const downloadStartTimeRef = useRef(null);
+  const filesDownloadedRef = useRef(0);
   // const API_BASE = import.meta.env.VITE_API_BASE || "";
 
   const logRef = useRef(null);
@@ -95,7 +103,17 @@ function App() {
 
       downloadFileWithStructure(jobId, fileInfo)
         .then(() => {
-          setFilesDownloaded((prev) => prev + 1);
+          setFilesDownloaded((prev) => {
+            const newCount = prev + 1;
+            filesDownloadedRef.current = newCount; // Keep ref in sync
+            // Update download speed
+            if (downloadStartTimeRef.current) {
+              const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000; // seconds
+              const speed = newCount / elapsed;
+              setDownloadSpeed(speed);
+            }
+            return newCount;
+          });
         })
         .catch(() => {
           setFailed((prev) => prev + 1);
@@ -105,7 +123,7 @@ function App() {
           processDownloadQueue(jobId);
         });
 
-      await sleep(100);
+      await sleep(50);
     }
   }
 
@@ -196,6 +214,16 @@ function App() {
     setStartedAt(null);
     setEndedAt(null);
     setElapsed(null);
+    setDownloadSpeed(0);
+    setDownloadStartTime(null);
+    setDownloadEndTime(null);
+    setFinalDownloadTime(null);
+    setFinalAvgSpeed(null);
+    downloadQueueRef.current = [];
+    activeDownloadsRef.current = 0;
+    totalFilesExpectedRef.current = 0;
+    downloadStartTimeRef.current = null;
+    filesDownloadedRef.current = 0;
 
     if (selectedYears.length === 0) {
       addLog("⚠️ Please select at least one year");
@@ -256,9 +284,7 @@ function App() {
         if (typeof p.meetings === "number") setMeetings(p.meetings);
         if (typeof p.filesDiscovered === "number")
           setFilesDiscovered(p.filesDiscovered);
-        if (typeof p.filesDownloaded === "number")
-          setFilesDownloaded(p.filesDownloaded);
-        if (typeof p.failed === "number") setFailed(p.failed);
+        // Don't update filesDownloaded from server - frontend tracks its own downloads
         if (p.startedAt) setStartedAt(p.startedAt);
       } catch {}
     });
@@ -269,7 +295,14 @@ function App() {
         setFiles((prev) => [f, ...prev].slice(0, 1000)); // keep last 1000
 
         if (autoDownload && f.url && f.year && f.meetingId) {
+          // Start download timer on first file
+          if (!downloadStartTimeRef.current && downloadQueueRef.current.length === 0) {
+            const now = Date.now();
+            setDownloadStartTime(now);
+            downloadStartTimeRef.current = now;
+          }
           downloadQueueRef.current.push(f);
+          totalFilesExpectedRef.current++;
           processDownloadQueue(jobId);
         }
       } catch {}
@@ -278,13 +311,33 @@ function App() {
     es.addEventListener("summary", (evt) => {
       try {
         const s = JSON.parse(evt.data);
-        setEndedAt(s.endedAt || null);
-        setElapsed(s.elapsed || null);
-        setPhase("done");
-        addLog("🎉 Finished.");
+        setPhase("finishing");
+        addLog(`📊 Discovery complete. Waiting for ${downloadQueueRef.current.length + activeDownloadsRef.current} remaining downloads...`);
+        
+        // Wait for all downloads to finish before showing final summary
+        const checkComplete = setInterval(() => {
+          if (downloadQueueRef.current.length === 0 && activeDownloadsRef.current === 0) {
+            clearInterval(checkComplete);
+            
+            // Store final download metrics using current ref values
+            const endTime = Date.now();
+            setDownloadEndTime(endTime);
+            if (downloadStartTimeRef.current) {
+              const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
+              const finalDownloaded = filesDownloadedRef.current;
+              setFinalDownloadTime(totalTime);
+              setFinalAvgSpeed(finalDownloaded / totalTime);
+            }
+            
+            setEndedAt(s.endedAt || null);
+            setElapsed(s.elapsed || null);
+            setPhase("done");
+            addLog("🎉 All downloads finished!");
+            es.close();
+            setSubmitting(false);
+          }
+        }, 500);
       } catch {}
-      es.close();
-      setSubmitting(false);
     });
   }
 
@@ -522,7 +575,7 @@ function App() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
+            gridTemplateColumns: "repeat(5, 1fr)",
             gap: 12,
             marginBottom: 16,
           }}
@@ -531,6 +584,10 @@ function App() {
           <StatCard label="Files Found" value={filesDiscovered} />
           <StatCard label="Downloaded" value={filesDownloaded} />
           <StatCard label="Failed" value={failed} />
+          <StatCard 
+            label="Speed" 
+            value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(1)}/s` : "—"} 
+          />
         </section>
 
         <section
@@ -697,8 +754,27 @@ function App() {
             </div>
             <div>Started: {startedAt || "—"}</div>
             <div>Ended: {endedAt || "—"}</div>
+            <div>Discovery: {elapsed || "—"}</div>
+            <div>
+              Downloads: {filesDownloaded} / {filesDiscovered}
+              {filesDiscovered > 0 && ` (${((filesDownloaded / filesDiscovered) * 100).toFixed(1)}%)`}
+            </div>
+            <div>
+              Download Time: {
+                finalDownloadTime !== null
+                  ? `${finalDownloadTime.toFixed(1)}s`
+                  : downloadStartTime && phase !== "idle"
+                  ? `${((Date.now() - downloadStartTime) / 1000).toFixed(1)}s (ongoing)`
+                  : "—"
+              }
+            </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              Elapsed: {elapsed || "—"}
+              {phase === "done" && filesDownloaded > 0 && finalAvgSpeed !== null && (
+                <span>
+                  Avg Speed: {finalAvgSpeed.toFixed(2)} files/sec
+                  {failed > 0 && ` • ${failed} failed`}
+                </span>
+              )}
             </div>
           </div>
         </section>
