@@ -27,6 +27,7 @@ function App() {
   const [finalDownloadTime, setFinalDownloadTime] = useState(null);
   const [finalAvgSpeed, setFinalAvgSpeed] = useState(null);
   const [totalBytesDownloaded, setTotalBytesDownloaded] = useState(0);
+  const [isCancelling, setIsCancelling] = useState(false);
   const downloadQueueRef = useRef([]);
   const activeDownloadsRef = useRef(0);
   const maxConcurrentDownloads = 8;
@@ -34,6 +35,8 @@ function App() {
   const downloadStartTimeRef = useRef(null);
   const filesDownloadedRef = useRef(0);
   const totalBytesDownloadedRef = useRef(0);
+  const eventSourceRef = useRef(null);
+  const isFinishingRef = useRef(false);
   // const API_BASE = import.meta.env.VITE_API_BASE || "";
 
   const logRef = useRef(null);
@@ -80,6 +83,57 @@ function App() {
     setLogLines((prev) => [...prev, message]);
   }
 
+  function stopDownloads() {
+    setIsCancelling(true);
+    addLog("🛑 Stopping downloads...");
+    
+    // Store how many we're skipping
+    const queuedCount = downloadQueueRef.current.length;
+    const activeCount = activeDownloadsRef.current;
+    
+    // Clear download queue to prevent new downloads
+    downloadQueueRef.current = [];
+    
+    // Close EventSource if it exists
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    
+    // Wait for active downloads to finish before finalizing (with timeout safeguard)
+    const startWait = Date.now();
+    const maxWaitTime = 60000; // 60 seconds max wait
+    
+    const checkComplete = setInterval(() => {
+      const elapsed = Date.now() - startWait;
+      
+      if (activeDownloadsRef.current === 0 || elapsed > maxWaitTime) {
+        clearInterval(checkComplete);
+        
+        if (elapsed > maxWaitTime) {
+          addLog(`⚠️ Forced cancellation after ${(elapsed / 1000).toFixed(1)}s (${activeDownloadsRef.current} downloads still active)`);
+        }
+        
+        setPhase("cancelled");
+        setSubmitting(false);
+        isFinishingRef.current = false;
+        addLog(`❌ Cancelled. Completed ${activeCount} in-flight downloads, skipped ${queuedCount} queued.`);
+        
+        // Store final download metrics
+        if (downloadStartTimeRef.current) {
+          const endTime = Date.now();
+          setDownloadEndTime(endTime);
+          const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
+          const megabytesDownloaded = totalBytesDownloadedRef.current / (1024 * 1024);
+          setFinalDownloadTime(totalTime);
+          if (totalTime > 0) {
+            setFinalAvgSpeed(megabytesDownloaded / totalTime);
+          }
+        }
+      }
+    }, 200);
+  }
+
   function handleYearToggle(yearValue) {
     setSelectedYears((prev) => {
       if (yearValue === "all") {
@@ -124,7 +178,8 @@ function App() {
   async function processDownloadQueue(jobId) {
     while (
       downloadQueueRef.current.length > 0 &&
-      activeDownloadsRef.current < maxConcurrentDownloads
+      activeDownloadsRef.current < maxConcurrentDownloads &&
+      !isCancelling
     ) {
       const fileInfo = downloadQueueRef.current.shift();
       activeDownloadsRef.current++;
@@ -260,12 +315,14 @@ function App() {
     setFinalAvgSpeed(null);
     setTotalBytesDownloaded(0);
     setCurrentDownloadTime("00:00:00");
+    setIsCancelling(false);
     downloadQueueRef.current = [];
     activeDownloadsRef.current = 0;
     totalFilesExpectedRef.current = 0;
     downloadStartTimeRef.current = null;
     filesDownloadedRef.current = 0;
     totalBytesDownloadedRef.current = 0;
+    isFinishingRef.current = false;
 
     if (selectedYears.length === 0) {
       addLog("⚠️ Please select at least one year");
@@ -301,18 +358,22 @@ function App() {
     const es = new EventSource(
       `/api/crawl/stream?jobId=${encodeURIComponent(jobId)}`
     );
+    eventSourceRef.current = es;
 
     es.addEventListener("open", () => {
       addLog("🔌 Connected to job stream.");
     });
 
     es.addEventListener("error", (evt) => {
-      // Only log error if it's not a normal close (which happens after summary)
-      if (es.readyState !== EventSource.CLOSED) {
+      // Only log error if it's not a normal close during finishing phase
+      if (!isFinishingRef.current) {
         addLog("⚠️ Stream connection error.");
       }
       es.close();
-      setSubmitting(false);
+      // Don't set submitting to false during finishing - let downloads complete
+      if (!isFinishingRef.current) {
+        setSubmitting(false);
+      }
     });
 
     es.addEventListener("log", (evt) => {
@@ -357,6 +418,7 @@ function App() {
       try {
         const s = JSON.parse(evt.data);
         setPhase("finishing");
+        isFinishingRef.current = true;
         addLog(`📊 Discovery complete. Waiting for ${downloadQueueRef.current.length + activeDownloadsRef.current} remaining downloads...`);
         
         // Wait for all downloads to finish before showing final summary
@@ -416,12 +478,16 @@ function App() {
               background:
                 phase === "done"
                   ? "#dcfce7"
+                  : phase === "cancelled"
+                  ? "#fee2e2"
                   : phase === "idle"
                   ? "#e2e8f0"
                   : "#dbeafe",
               color:
                 phase === "done"
                   ? "#166534"
+                  : phase === "cancelled"
+                  ? "#991b1b"
                   : phase === "idle"
                   ? "#334155"
                   : "#1e40af",
@@ -600,12 +666,12 @@ function App() {
             </small>
           </div>
 
-          <div style={{ display: "flex", alignItems: "end" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
             <button
               type="submit"
               disabled={submitting}
               style={{
-                width: "100%",
+                flex: 1,
                 borderRadius: 12,
                 padding: "10px 14px",
                 fontWeight: 600,
@@ -617,6 +683,24 @@ function App() {
             >
               {submitting ? "Running…" : "Start Crawl"}
             </button>
+            {submitting && !isCancelling && (
+              <button
+                type="button"
+                onClick={stopDownloads}
+                style={{
+                  borderRadius: 12,
+                  padding: "10px 14px",
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: "#dc2626",
+                  cursor: "pointer",
+                  border: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Stop Downloads
+              </button>
+            )}
           </div>
         </form>
 
