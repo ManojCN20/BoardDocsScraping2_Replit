@@ -30,7 +30,7 @@ function App() {
   const [isCancelling, setIsCancelling] = useState(false);
   const downloadQueueRef = useRef([]);
   const activeDownloadsRef = useRef(0);
-  const maxConcurrentDownloads = 8;
+  const maxConcurrentDownloads = 24;
   const totalFilesExpectedRef = useRef(0);
   const downloadStartTimeRef = useRef(null);
   const filesDownloadedRef = useRef(0);
