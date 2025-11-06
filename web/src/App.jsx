@@ -423,7 +423,7 @@ function App() {
         // Mark as seen
         seenFilesRef.current.add(fileKey);
         
-        setFiles((prev) => [f, ...prev].slice(0, 1000)); // keep last 1000
+        setFiles((prev) => [f, ...prev]); // keep all files
         
         // Increment filesDiscovered for unique files only
         setFilesDiscovered((prev) => prev + 1);
@@ -830,7 +830,7 @@ function App() {
               }}
             >
               <h2 style={{ fontWeight: 600 }}>Recent Files</h2>
-              <small style={{ color: "#64748b" }}>showing last 1000</small>
+              <small style={{ color: "#64748b" }}>{files.length} files</small>
             </div>
             <div style={{ height: 290, overflow: "auto" }}>
               <table
@@ -851,13 +851,16 @@ function App() {
                     <th style={{ textAlign: "left", padding: "8px 8px" }}>
                       Meeting
                     </th>
+                    <th style={{ textAlign: "left", padding: "8px 8px" }}>
+                      Link
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {files.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={3}
+                        colSpan={4}
                         style={{
                           padding: 24,
                           textAlign: "center",
@@ -886,6 +889,26 @@ function App() {
                           }}
                         >
                           {f.meetingId || "—"}
+                        </td>
+                        <td style={{ padding: "8px 8px" }}>
+                          {f.url ? (
+                            <a
+                              href={f.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: "#2563eb",
+                                textDecoration: "none",
+                                fontSize: 13,
+                              }}
+                              onMouseEnter={(e) => e.target.style.textDecoration = "underline"}
+                              onMouseLeave={(e) => e.target.style.textDecoration = "none"}
+                            >
+                              Link
+                            </a>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                       </tr>
                     ))
