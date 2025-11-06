@@ -51,6 +51,15 @@ function App() {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }
 
+  // Helper function to format bytes into human-readable size
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+  }
+
   // Calculate current download elapsed time
   const [currentDownloadTime, setCurrentDownloadTime] = useState("00:00:00");
 
@@ -741,7 +750,7 @@ function App() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(6, 1fr)",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 12,
             marginBottom: 16,
           }}
@@ -750,6 +759,10 @@ function App() {
           <StatCard label="Files Found" value={filesDiscovered} />
           <StatCard label="Downloaded" value={filesDownloaded} />
           <StatCard label="Failed" value={failed} />
+          <StatCard 
+            label="Total Size" 
+            value={formatBytes(totalBytesDownloaded)} 
+          />
           <StatCard 
             label="Speed" 
             value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(2)} MB/s` : "—"} 
