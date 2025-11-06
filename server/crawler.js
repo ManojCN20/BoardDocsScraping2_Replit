@@ -193,6 +193,16 @@ async function collectMeetings(browser, START_URL, YEARS_ARG) {
       .getAttribute("aria-controls")
       .catch(() => null);
 
+    // Extract year from section header text
+    const headerText = await header.textContent().catch(() => "");
+    const yearMatch = headerText.match(/\b(20\d{2})\b/);
+    const sectionYear = yearMatch ? yearMatch[1] : null;
+
+    // Skip this section if we're filtering by specific years and this section doesn't match
+    if (!YEARS_ARG.includes("all") && sectionYear && !YEARS_ARG.includes(sectionYear)) {
+      continue;
+    }
+
     await header.click({ timeout: 2000 }).catch(() => {});
     await sleep(100);
     const expanded = await header
@@ -216,16 +226,17 @@ async function collectMeetings(browser, START_URL, YEARS_ARG) {
       .evaluateAll((as) =>
         as.map((a) => ({
           id: a.getAttribute("id"),
-          year: a.getAttribute("year"),
           text: (a.textContent || "").trim(),
         }))
       )
       .catch(() => []);
 
-    const filtered = meetings.filter(
-      (m) => m.id && (YEARS_ARG.includes("all") || YEARS_ARG.includes(m.year))
-    );
-    all.push(...filtered);
+    // Assign the section year to all meetings in this section
+    const meetingsWithYear = meetings
+      .filter(m => m.id)
+      .map(m => ({ ...m, year: sectionYear }));
+
+    all.push(...meetingsWithYear);
   }
 
   const seen = new Set(),
