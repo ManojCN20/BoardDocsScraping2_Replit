@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 function App() {
   const [state, setState] = useState("");
-  const [district, setDistrict] = useState("");
+  const [districts, setDistricts] = useState("");
   const [selectedYears, setSelectedYears] = useState(["all"]);
   const [submitting, setSubmitting] = useState(false);
   const [jobId, setJobId] = useState(null);
@@ -251,15 +251,16 @@ function App() {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         if (downloadDir && window.showDirectoryPicker) {
-          const yearDir = await downloadDir.getDirectoryHandle(fileInfo.year, {
-            create: true,
-          });
-          const meetingDir = await yearDir.getDirectoryHandle(
-            fileInfo.meetingId,
+          const districtDir = await downloadDir.getDirectoryHandle(
+            fileInfo.district || "unknown",
+            { create: true }
+          );
+          const yearDir = await districtDir.getDirectoryHandle(
+            fileInfo.year || "unknown",
             { create: true }
           );
           
-          const fileHandle = await meetingDir.getFileHandle(filename, {
+          const fileHandle = await yearDir.getFileHandle(filename, {
             create: true,
           });
           const writable = await fileHandle.createWritable();
@@ -344,13 +345,33 @@ function App() {
       return;
     }
 
+    // Parse and validate districts
+    const districtList = districts
+      .split(",")
+      .map((d) => d.trim())
+      .filter((d) => d.length > 0);
+
+    if (districtList.length === 0) {
+      addLog("⚠️ Please enter at least one district code");
+      setSubmitting(false);
+      setPhase("idle");
+      return;
+    }
+
+    if (districtList.length > 10) {
+      addLog("⚠️ Maximum 10 districts allowed");
+      setSubmitting(false);
+      setPhase("idle");
+      return;
+    }
+
     try {
       const res = await fetch("/api/crawl", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           state,
-          district,
+          districts: districtList,
           years: selectedYears,
         }),
       });
@@ -358,7 +379,7 @@ function App() {
       const { jobId } = await res.json();
       setJobId(jobId);
       const yearStr = selectedYears.includes("all") ? "all years" : selectedYears.join(", ");
-      addLog(`🚀 Started job ${jobId} for ${state}/${district} - ${yearStr}`);
+      addLog(`🚀 Started job ${jobId} for ${state}/${districtList.join(", ")} - ${yearStr}`);
       connectSSE(jobId);
     } catch (e) {
       addLog(`❌ Failed to start: ${e.message}`);
@@ -557,21 +578,27 @@ function App() {
 
           <div>
             <label style={{ fontSize: 13, fontWeight: 600 }}>
-              District Code
+              District Codes (Max 10, comma-separated)
             </label>
-            <input
+            <textarea
               style={{
                 marginTop: 6,
                 width: "98%",
                 border: "1px solid #e2e8f0",
                 borderRadius: 12,
                 padding: "10px 12px",
+                minHeight: "60px",
+                fontFamily: "inherit",
+                resize: "vertical",
               }}
-              placeholder="e.g., lmor"
-              value={district}
-              onChange={(e) => setDistrict(e.target.value.trim().toLowerCase())}
+              placeholder="e.g., lmor, district2, district3"
+              value={districts}
+              onChange={(e) => setDistricts(e.target.value.toLowerCase())}
               required
             />
+            <small style={{ fontSize: 11, color: "#64748b", marginTop: 4, display: "block" }}>
+              Enter up to 10 district codes separated by commas
+            </small>
           </div>
 
           <div>
@@ -689,8 +716,8 @@ function App() {
               }}
             >
               {downloadDirName
-                ? `Files will save to ${downloadDirName} with year/meeting folders`
-                : "Select a folder to organize downloads by year/meeting"}
+                ? `Files will save to ${downloadDirName} organized as District/Year folders`
+                : "Select a folder to organize downloads by District/Year"}
             </small>
           </div>
 

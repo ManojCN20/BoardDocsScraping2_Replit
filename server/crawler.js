@@ -116,17 +116,16 @@ function docIdFromUrl(u) {
     return null;
   }
 }
-// downloads/<year>/<meetingId>/Name__DOCID.ext
-function uniqueOutPathScoped(u, baseDir, year, meetingId) {
+// District/<year>/Name__DOCID.ext
+function uniqueOutPathScoped(u, district, year) {
   const base = fileNameFromUrl(u);
   const ext = path.extname(base);
   const name = path.basename(base, ext);
   const docId = docIdFromUrl(u);
   const unique = docId ? `${name}__${docId}${ext}` : base;
   return path.join(
-    baseDir,
+    String(district || "unknown"),
     String(year || "unknown"),
-    String(meetingId || "unknown"),
     unique
   );
 }
@@ -281,9 +280,8 @@ async function primeSessionAgenda(page, mframe, meetingId) {
 /* ---------- Exported entry ---------- */
 export async function startBoardDocsCrawl({
   state = "pa",
-  district,
+  districts = [],
   years = ["all"],
-  outDir = `downloads_${district}`,
   headless = true,
   dlConcurrency = 16,
   onLog = () => {},
@@ -292,13 +290,18 @@ export async function startBoardDocsCrawl({
   onSummary = () => {},
 }) {
   const RUN_START = Date.now();
-  const START_URL = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Public`;
+  
+  if (!districts || districts.length === 0) {
+    throw new Error("At least one district is required");
+  }
 
   onLog(`📡 Files will download directly to your browser`);
+  onLog(`🎯 Processing ${districts.length} district(s): ${districts.join(", ")}`);
+
+  let totalFilesAllDistricts = 0;
 
   try {
     const yearStr = years.includes("all") ? "all years" : years.join(", ");
-    onLog(`🚀 Opening: ${START_URL}  (years: ${yearStr})`);
 
     function findChromiumPath() {
       const macChromiumPaths = [
@@ -321,7 +324,7 @@ export async function startBoardDocsCrawl({
         if (fs.existsSync(path)) return path;
       }
 
-      // 3️⃣ Try Playwright’s bundled Chromium
+      // 3️⃣ Try Playwright's bundled Chromium
       try {
         const pw = require("playwright-core");
         const browserPath = pw.chromium.executablePath();
@@ -342,138 +345,151 @@ export async function startBoardDocsCrawl({
 
     const executablePath = findChromiumPath();
 
-    // ✅ Launch Chromium with fallback logic
-    const browser = await chromium.launch({
-      headless,
-      executablePath,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-      ],
-      // const browser = await chromium.launch({
-      //   headless,
-      //   executablePath: process.env.CHROMIUM_PATH || '/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium',
-      //   args: [
-      //     '--no-sandbox',
-      //     '--disable-setuid-sandbox',
-      //     '--disable-dev-shm-usage',
-      //     '--disable-gpu'
-      //   ]
-    });
+    // Loop through each district
+    for (let districtIndex = 0; districtIndex < districts.length; districtIndex++) {
+      const district = districts[districtIndex];
+      const START_URL = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Public`;
+      
+      onLog(`\n${"=".repeat(60)}`);
+      onLog(`📍 District ${districtIndex + 1}/${districts.length}: ${district}`);
+      onLog(`🚀 Opening: ${START_URL}  (years: ${yearStr})`);
+      onLog(`${"=".repeat(60)}`);
 
-    const { page, context, meetings, mframe } = await collectMeetings(
-      browser,
-      START_URL,
-      years
-    );
-    onLog(`🗓️ Meetings discovered: ${meetings.length}`);
-    onProgress({
-      phase: "discovery",
-      meetings: meetings.length,
-      startedAt: fmtTs(RUN_START),
-    });
-
-    if (!meetings.length) {
-      const RUN_END = Date.now();
-      onSummary({
-        endedAt: fmtTs(RUN_END),
-        elapsed: fmtDur(RUN_END - RUN_START),
-        filesDownloaded: 0,
-        failed: 0,
+      // ✅ Launch Chromium with fallback logic
+      const browser = await chromium.launch({
+        headless,
+        executablePath,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+        ],
       });
+
+      const { page, context, meetings, mframe } = await collectMeetings(
+        browser,
+        START_URL,
+        years
+      );
+      onLog(`🗓️ Meetings discovered: ${meetings.length}`);
+      onProgress({
+        phase: "discovery",
+        district,
+        districtIndex: districtIndex + 1,
+        totalDistricts: districts.length,
+        meetings: meetings.length,
+        startedAt: fmtTs(RUN_START),
+      });
+
+      if (!meetings.length) {
+        onLog(`⚠️ No meetings found for ${district}`);
+        await context.close().catch(() => {});
+        await browser.close().catch(() => {});
+        continue;
+      }
+
+      onLog(`🔄 Priming session with first meeting...`);
+      await primeSessionAgenda(page, mframe, meetings[0].id);
+      onLog(`✅ Session primed`);
+
+      onLog(`📋 Saving session state...`);
+      const storageState = await context.storageState();
+      onLog(`🔒 Closing browser...`);
       await context.close().catch(() => {});
       await browser.close().catch(() => {});
-      return;
-    }
+      onLog(`✅ Browser closed`);
 
-    onLog(`🔄 Priming session with first meeting...`);
-    await primeSessionAgenda(page, mframe, meetings[0].id);
-    onLog(`✅ Session primed`);
+      const cookieHeader = cookieHeaderFromStorageState(storageState);
 
-    onLog(`📋 Saving session state...`);
-    const storageState = await context.storageState();
-    onLog(`🔒 Closing browser...`);
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
-    onLog(`✅ Browser closed`);
+      // ---- Step 1: Fetch Agenda HTMLs ----
+      const agendaQueue = new PQueue({ concurrency: 32 });
+      const allItems = []; // { url, year, meetingId, district }
 
-    const cookieHeader = cookieHeaderFromStorageState(storageState);
-
-    // ---- Step 1: Fetch Agenda HTMLs ----
-    const agendaQueue = new PQueue({ concurrency: 32 });
-    const allItems = []; // { url, year, meetingId }
-
-    await agendaQueue.addAll(
-      meetings.map((m) => async () => {
-        const url = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Download-AgendaDetailed?open&id=${encodeURIComponent(
-          m.id
-        )}&${Math.random()}`;
-        try {
-          const { statusCode, body } = await undiciRequest(url, {
-            headers: {
-              ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-              Accept: "text/html, */*",
-            },
-          });
-          if (statusCode !== 200) {
-            body.resume();
-            return;
-          }
-          const html = await body.text();
-          const urls = extractFileLinksFromAgendaHTML(html, url);
-          urls.forEach((u) =>
-            allItems.push({ url: u, year: m.year, meetingId: m.id })
-          );
-          onProgress({
-            phase: "parsing",
-            filesDiscovered: allItems.length,
-          });
-        } catch {}
-      })
-    );
-    await agendaQueue.onIdle();
-
-    // ---- Step 2: Dedup and send files to frontend ----
-    const rawCount = allItems.length;
-    const byUrl = new Map();
-    for (const it of allItems) if (!byUrl.has(it.url)) byUrl.set(it.url, it);
-    const finalItems = Array.from(byUrl.values());
-    const duplicatesRemoved = rawCount - finalItems.length;
-
-    if (duplicatesRemoved > 0) {
-      onLog(
-        `🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`
+      await agendaQueue.addAll(
+        meetings.map((m) => async () => {
+          const url = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Download-AgendaDetailed?open&id=${encodeURIComponent(
+            m.id
+          )}&${Math.random()}`;
+          try {
+            const { statusCode, body } = await undiciRequest(url, {
+              headers: {
+                ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+                Accept: "text/html, */*",
+              },
+            });
+            if (statusCode !== 200) {
+              body.resume();
+              return;
+            }
+            const html = await body.text();
+            const urls = extractFileLinksFromAgendaHTML(html, url);
+            urls.forEach((u) =>
+              allItems.push({ url: u, year: m.year, meetingId: m.id, district })
+            );
+            onProgress({
+              phase: "parsing",
+              district,
+              districtIndex: districtIndex + 1,
+              totalDistricts: districts.length,
+              filesDiscovered: allItems.length,
+            });
+          } catch {}
+        })
       );
-    } else {
-      onLog(`🔎 Files discovered: ${finalItems.length}`);
-    }
-    onLog(`📡 Sending file list to browser for direct download...`);
+      await agendaQueue.onIdle();
 
-    let sent = 0;
-    for (const { url, year: y, meetingId } of finalItems) {
-      const filename = fileNameFromUrl(url);
-      onFile({
-        url,
-        year: y,
-        meetingId,
-        filename,
-        cookieHeader,
-      });
-      sent++;
-      onProgress({
-        phase: "sending",
-        filesDiscovered: finalItems.length,
-        filesSent: sent,
-      });
+      // ---- Step 2: Dedup and send files to frontend ----
+      const rawCount = allItems.length;
+      const byUrl = new Map();
+      for (const it of allItems) if (!byUrl.has(it.url)) byUrl.set(it.url, it);
+      const finalItems = Array.from(byUrl.values());
+      const duplicatesRemoved = rawCount - finalItems.length;
+
+      if (duplicatesRemoved > 0) {
+        onLog(
+          `🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`
+        );
+      } else {
+        onLog(`🔎 Files discovered: ${finalItems.length}`);
+      }
+      onLog(`📡 Sending file list to browser for direct download...`);
+
+      let sent = 0;
+      for (const { url, year: y, meetingId, district: d } of finalItems) {
+        const filename = fileNameFromUrl(url);
+        onFile({
+          url,
+          year: y,
+          meetingId,
+          filename,
+          district: d,
+          cookieHeader,
+        });
+        sent++;
+        onProgress({
+          phase: "sending",
+          district: d,
+          districtIndex: districtIndex + 1,
+          totalDistricts: districts.length,
+          filesDiscovered: finalItems.length,
+          filesSent: sent,
+        });
+      }
+
+      totalFilesAllDistricts += finalItems.length;
+      onLog(`✅ Completed ${district}: ${finalItems.length} files sent`);
     }
 
     const RUN_END = Date.now();
+    onLog(`\n${"=".repeat(60)}`);
+    onLog(`✅ All districts complete!`);
+    onLog(`${"=".repeat(60)}`);
     onSummary({
       endedAt: fmtTs(RUN_END),
       elapsed: fmtDur(RUN_END - RUN_START),
-      totalFiles: finalItems.length,
+      totalFiles: totalFilesAllDistricts,
+      districtsProcessed: districts.length,
     });
   } catch (e) {
     const RUN_END = Date.now();

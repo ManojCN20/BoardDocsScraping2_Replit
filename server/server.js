@@ -19,9 +19,14 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/crawl", async (req, res) => {
-  const { state, district, years } = req.body || {};
+  const { state, districts, years } = req.body || {};
   if (!state) return res.status(400).json({ error: "state required" });
-  if (!district) return res.status(400).json({ error: "district required" });
+  if (!districts || !Array.isArray(districts) || districts.length === 0) {
+    return res.status(400).json({ error: "districts array required" });
+  }
+  if (districts.length > 10) {
+    return res.status(400).json({ error: "maximum 10 districts allowed" });
+  }
 
   const jobId = Math.random().toString(36).slice(2);
   const emitter = new EventEmitter();
@@ -30,10 +35,10 @@ app.post("/api/crawl", async (req, res) => {
   // respond immediately with job id
   res.json({ jobId });
 
-  // fire and forget
+  // fire and forget - process all districts
   startBoardDocsCrawl({
     state,
-    district,
+    districts,
     years: years || ["all"],
     onLog: (message) => emitter.emit("log", { message }),
     onProgress: (p) => emitter.emit("progress", p),
