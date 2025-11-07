@@ -37,7 +37,6 @@ function App() {
   const totalBytesDownloadedRef = useRef(0);
   const eventSourceRef = useRef(null);
   const isFinishingRef = useRef(false);
-  const seenFilesRef = useRef(new Set()); // Track unique files by path
   // const API_BASE = import.meta.env.VITE_API_BASE || "";
 
   const logRef = useRef(null);
@@ -336,7 +335,6 @@ function App() {
     filesDownloadedRef.current = 0;
     totalBytesDownloadedRef.current = 0;
     isFinishingRef.current = false;
-    seenFilesRef.current = new Set(); // Reset unique file tracking
 
     if (selectedYears.length === 0) {
       addLog("⚠️ Please select at least one year");
@@ -428,7 +426,7 @@ function App() {
         const p = JSON.parse(evt.data);
         setPhase(p.phase || "running");
         if (typeof p.meetings === "number") setMeetings(p.meetings);
-        // Don't update filesDiscovered from server - frontend tracks unique files
+        // Don't update filesDiscovered from server - frontend tracks all files (including duplicates)
         // Don't update filesDownloaded from server - frontend tracks its own downloads
         if (p.startedAt) setStartedAt(p.startedAt);
       } catch {}
@@ -438,21 +436,10 @@ function App() {
       try {
         const f = JSON.parse(evt.data);
         
-        // Create unique key for this file: year/meetingId/filename
-        const filename = f.filename || f.url?.split('/').pop() || 'file';
-        const fileKey = `${f.year}/${f.meetingId}/${filename}`;
+        // Process all files without deduplication
+        setFiles((prev) => [f, ...prev]);
         
-        // Skip if we've already seen this exact file
-        if (seenFilesRef.current.has(fileKey)) {
-          return; // Skip duplicate
-        }
-        
-        // Mark as seen
-        seenFilesRef.current.add(fileKey);
-        
-        setFiles((prev) => [f, ...prev]); // keep all files
-        
-        // Increment filesDiscovered for unique files only
+        // Increment filesDiscovered for all files
         setFilesDiscovered((prev) => prev + 1);
 
         if (autoDownload && f.url && f.year && f.meetingId) {

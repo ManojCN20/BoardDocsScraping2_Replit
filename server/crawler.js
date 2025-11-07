@@ -439,24 +439,14 @@ export async function startBoardDocsCrawl({
       );
       await agendaQueue.onIdle();
 
-      // ---- Step 2: Dedup and send files to frontend ----
-      const rawCount = allItems.length;
-      const byUrl = new Map();
-      for (const it of allItems) if (!byUrl.has(it.url)) byUrl.set(it.url, it);
-      const finalItems = Array.from(byUrl.values());
-      const duplicatesRemoved = rawCount - finalItems.length;
+      // ---- Step 2: Send all files to frontend (no deduplication) ----
+      const totalCount = allItems.length;
 
-      if (duplicatesRemoved > 0) {
-        onLog(
-          `🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`
-        );
-      } else {
-        onLog(`🔎 Files discovered: ${finalItems.length}`);
-      }
+      onLog(`🔎 Files discovered: ${totalCount} (all files, including duplicates)`);
       onLog(`📡 Sending file list to browser for direct download...`);
 
       let sent = 0;
-      for (const { url, year: y, meetingId, district: d } of finalItems) {
+      for (const { url, year: y, meetingId, district: d } of allItems) {
         const filename = fileNameFromUrl(url);
         onFile({
           url,
@@ -472,13 +462,13 @@ export async function startBoardDocsCrawl({
           district: d,
           districtIndex: districtIndex + 1,
           totalDistricts: districts.length,
-          filesDiscovered: finalItems.length,
+          filesDiscovered: allItems.length,
           filesSent: sent,
         });
       }
 
-      totalFilesAllDistricts += finalItems.length;
-      onLog(`✅ Completed ${district}: ${finalItems.length} files sent`);
+      totalFilesAllDistricts += allItems.length;
+      onLog(`✅ Completed ${district}: ${allItems.length} files sent`);
     }
 
     const RUN_END = Date.now();
