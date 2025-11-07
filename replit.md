@@ -6,11 +6,12 @@ This is a web scraping application that crawls BoardDocs websites to download me
 
 ## Recent Changes (November 7, 2025)
 
-**No Deduplication + Unique Filenames:**
+**No Deduplication + Unique Filenames + Complete Coverage:**
 - Removed all deduplication logic from both backend and frontend
 - All discovered files are now sent to frontend and downloaded (including duplicates)
 - Files are named uniquely using document IDs (e.g., `Agenda__DOC123.pdf`) to prevent overwrites
-- Count of files found = count downloaded = count in folder (all three match)
+- Files with missing metadata (year/meetingId) are saved to "unknown" folders instead of being skipped
+- **Result:** Count of files found = count downloaded = count in folder (all three match perfectly)
 
 ## User Preferences
 
