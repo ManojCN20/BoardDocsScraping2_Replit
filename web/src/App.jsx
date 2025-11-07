@@ -436,20 +436,28 @@ function App() {
       try {
         const f = JSON.parse(evt.data);
         
+        // Normalize missing metadata to "unknown"
+        const normalizedFile = {
+          ...f,
+          year: f.year || "unknown",
+          meetingId: f.meetingId || "unknown",
+          district: f.district || "unknown"
+        };
+        
         // Process all files without deduplication
-        setFiles((prev) => [f, ...prev]);
+        setFiles((prev) => [normalizedFile, ...prev]);
         
         // Increment filesDiscovered for all files
         setFilesDiscovered((prev) => prev + 1);
 
-        if (autoDownload && f.url && f.year && f.meetingId) {
+        if (autoDownload && normalizedFile.url) {
           // Start download timer on first file
           if (!downloadStartTimeRef.current && downloadQueueRef.current.length === 0) {
             const now = Date.now();
             setDownloadStartTime(now);
             downloadStartTimeRef.current = now;
           }
-          downloadQueueRef.current.push(f);
+          downloadQueueRef.current.push(normalizedFile);
           totalFilesExpectedRef.current++;
           processDownloadQueue(jobId);
         }
