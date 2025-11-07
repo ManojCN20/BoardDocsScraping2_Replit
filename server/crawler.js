@@ -303,6 +303,7 @@ export async function startBoardDocsCrawl({
   onLog(`🎯 Processing ${districts.length} district(s): ${districts.join(", ")}`);
 
   let totalFilesAllDistricts = 0;
+  const districtStats = {}; // { district: { totalMeetings, totalFiles, years: { year: { meetings, files } } } }
 
   try {
     const yearStr = years.includes("all") ? "all years" : years.join(", ");
@@ -376,13 +377,40 @@ export async function startBoardDocsCrawl({
         START_URL,
         years
       );
+      
+      // Initialize district stats
+      districtStats[district] = {
+        totalMeetings: meetings.length,
+        totalFiles: 0,
+        years: {}
+      };
+      
+      // Count meetings per year
+      meetings.forEach(m => {
+        const year = m.year || "unknown";
+        if (!districtStats[district].years[year]) {
+          districtStats[district].years[year] = { meetings: 0, files: 0 };
+        }
+        districtStats[district].years[year].meetings++;
+      });
+      
       onLog(`🗓️ Meetings discovered: ${meetings.length}`);
+      
+      // Log breakdown by year
+      const yearCounts = Object.entries(districtStats[district].years)
+        .map(([year, data]) => `${year}: ${data.meetings}`)
+        .join(", ");
+      if (yearCounts) {
+        onLog(`   └─ By year: ${yearCounts}`);
+      }
+      
       onProgress({
         phase: "discovery",
         district,
         districtIndex: districtIndex + 1,
         totalDistricts: districts.length,
         meetings: meetings.length,
+        districtStats,
         startedAt: fmtTs(RUN_START),
       });
 
@@ -428,15 +456,24 @@ export async function startBoardDocsCrawl({
             }
             const html = await body.text();
             const urls = extractFileLinksFromAgendaHTML(html, url);
-            urls.forEach((u) =>
-              allItems.push({ url: u, year: m.year, meetingId: m.id, district })
-            );
+            urls.forEach((u) => {
+              const fileYear = m.year || "unknown";
+              allItems.push({ url: u, year: fileYear, meetingId: m.id, district });
+              
+              // Track files per year
+              if (!districtStats[district].years[fileYear]) {
+                districtStats[district].years[fileYear] = { meetings: 0, files: 0 };
+              }
+              districtStats[district].years[fileYear].files++;
+              districtStats[district].totalFiles++;
+            });
             onProgress({
               phase: "parsing",
               district,
               districtIndex: districtIndex + 1,
               totalDistricts: districts.length,
               filesDiscovered: allItems.length,
+              districtStats,
             });
           } catch {}
         })
@@ -447,6 +484,15 @@ export async function startBoardDocsCrawl({
       const totalCount = allItems.length;
 
       onLog(`🔎 Files discovered: ${totalCount} (all files, including duplicates)`);
+      
+      // Log breakdown by year for this district
+      const fileYearCounts = Object.entries(districtStats[district].years)
+        .map(([year, data]) => `${year}: ${data.files}`)
+        .join(", ");
+      if (fileYearCounts) {
+        onLog(`   └─ By year: ${fileYearCounts}`);
+      }
+      
       onLog(`📡 Sending file list to browser for direct download...`);
 
       let sent = 0;
@@ -479,11 +525,45 @@ export async function startBoardDocsCrawl({
     onLog(`\n${"=".repeat(60)}`);
     onLog(`✅ All districts complete!`);
     onLog(`${"=".repeat(60)}`);
+    
+    // Log comprehensive summary
+    onLog(`\n📊 DISCOVERY SUMMARY:`);
+    onLog(`${"─".repeat(60)}`);
+    
+    let totalMeetings = 0;
+    let totalFiles = 0;
+    
+    // Per-district summary
+    Object.entries(districtStats).forEach(([district, stats]) => {
+      totalMeetings += stats.totalMeetings;
+      totalFiles += stats.totalFiles;
+      
+      onLog(`\n📍 District: ${district}`);
+      onLog(`   Meetings: ${stats.totalMeetings}`);
+      onLog(`   Files Found: ${stats.totalFiles}`);
+      
+      // Per-year breakdown
+      const yearEntries = Object.entries(stats.years).sort(([a], [b]) => b.localeCompare(a));
+      yearEntries.forEach(([year, data]) => {
+        onLog(`   └─ ${year}: ${data.meetings} meetings, ${data.files} files`);
+      });
+    });
+    
+    onLog(`\n${"─".repeat(60)}`);
+    onLog(`📊 TOTALS:`);
+    onLog(`   Total Meetings: ${totalMeetings}`);
+    onLog(`   Total Files Discovered: ${totalFiles}`);
+    onLog(`   Total Files to Download: ${totalFilesAllDistricts}`);
+    onLog(`   Districts Processed: ${districts.length}`);
+    onLog(`${"─".repeat(60)}`);
+    
     onSummary({
       endedAt: fmtTs(RUN_END),
       elapsed: fmtDur(RUN_END - RUN_START),
       totalFiles: totalFilesAllDistricts,
+      totalMeetings,
       districtsProcessed: districts.length,
+      districtStats,
     });
   } catch (e) {
     const RUN_END = Date.now();
