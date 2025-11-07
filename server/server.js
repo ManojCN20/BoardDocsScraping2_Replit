@@ -94,53 +94,61 @@ app.get("/api/crawl/stream", (req, res) => {
 // Proxy file downloads (no disk storage, just streaming)
 app.get("/api/proxy-download", async (req, res) => {
   const { url, cookieHeader, filename } = req.query;
-  
+
   if (!url) {
     return res.status(400).json({ error: "URL required" });
   }
 
   try {
-    const { request: undiciRequest } = await import('undici');
-    
+    const { request: undiciRequest } = await import("undici");
+
     const headers = {
       Accept: "*/*",
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     };
-    
+
     if (cookieHeader) {
       headers.Cookie = cookieHeader;
     }
 
-    const { statusCode, body, headers: responseHeaders } = await undiciRequest(url, { 
+    const {
+      statusCode,
+      body,
+      headers: responseHeaders,
+    } = await undiciRequest(url, {
       headers,
     });
-    
+
     if (statusCode !== 200) {
       body.resume();
       return res.status(statusCode).json({ error: `HTTP ${statusCode}` });
     }
 
-    const safeName = (filename || 'file')
-      .replace(/[^\x20-\x7E]/g, '_')
-      .replace(/["\\]/g, '_')
+    const safeName = (filename || "file")
+      .replace(/[^\x20-\x7E]/g, "_")
+      .replace(/["\\]/g, "_")
       .substring(0, 200);
-    
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-    res.setHeader('Content-Type', responseHeaders['content-type'] || 'application/octet-stream');
-    if (responseHeaders['content-length']) {
-      res.setHeader('Content-Length', responseHeaders['content-length']);
+
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+    res.setHeader(
+      "Content-Type",
+      responseHeaders["content-type"] || "application/octet-stream"
+    );
+    if (responseHeaders["content-length"]) {
+      res.setHeader("Content-Length", responseHeaders["content-length"]);
     }
-    
+
     body.pipe(res);
-    
-    body.on('error', (err) => {
-      console.error('Stream error:', err.message);
+
+    body.on("error", (err) => {
+      console.error("Stream error:", err.message);
       if (!res.headersSent) {
         res.status(500).json({ error: err.message });
       }
     });
   } catch (err) {
-    console.error('Proxy error:', err.message);
+    console.error("Proxy error:", err.message);
     if (!res.headersSent) {
       res.status(500).json({ error: err.message });
     }
