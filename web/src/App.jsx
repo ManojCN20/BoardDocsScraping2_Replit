@@ -375,7 +375,13 @@ function App() {
           years: selectedYears,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMsg = errorData.error || `HTTP ${res.status}`;
+        throw new Error(errorMsg);
+      }
+      
       const { jobId } = await res.json();
       setJobId(jobId);
       const yearStr = selectedYears.includes("all") ? "all years" : selectedYears.join(", ");
