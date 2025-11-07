@@ -116,13 +116,17 @@ function docIdFromUrl(u) {
     return null;
   }
 }
-// District/<year>/Name__DOCID.ext
-function uniqueOutPathScoped(u, district, year) {
-  const base = fileNameFromUrl(u);
+// Generate unique filename with document ID: Name__DOCID.ext
+function uniqueFilename(url) {
+  const base = fileNameFromUrl(url);
   const ext = path.extname(base);
   const name = path.basename(base, ext);
-  const docId = docIdFromUrl(u);
-  const unique = docId ? `${name}__${docId}${ext}` : base;
+  const docId = docIdFromUrl(url);
+  return docId ? `${name}__${docId}${ext}` : base;
+}
+// District/<year>/Name__DOCID.ext
+function uniqueOutPathScoped(u, district, year) {
+  const unique = uniqueFilename(u);
   return path.join(
     String(district || "unknown"),
     String(year || "unknown"),
@@ -447,7 +451,7 @@ export async function startBoardDocsCrawl({
 
       let sent = 0;
       for (const { url, year: y, meetingId, district: d } of allItems) {
-        const filename = fileNameFromUrl(url);
+        const filename = uniqueFilename(url);
         onFile({
           url,
           year: y,
