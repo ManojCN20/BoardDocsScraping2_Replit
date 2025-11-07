@@ -294,13 +294,15 @@ export async function startBoardDocsCrawl({
   onSummary = () => {},
 }) {
   const RUN_START = Date.now();
-  
+
   if (!districts || districts.length === 0) {
     throw new Error("At least one district is required");
   }
 
   onLog(`📡 Files will download directly to your browser`);
-  onLog(`🎯 Processing ${districts.length} district(s): ${districts.join(", ")}`);
+  onLog(
+    `🎯 Processing ${districts.length} district(s): ${districts.join(", ")}`
+  );
 
   let totalFilesAllDistricts = 0;
   let totalMeetingsAllDistricts = 0;
@@ -352,12 +354,18 @@ export async function startBoardDocsCrawl({
     const executablePath = findChromiumPath();
 
     // Loop through each district
-    for (let districtIndex = 0; districtIndex < districts.length; districtIndex++) {
+    for (
+      let districtIndex = 0;
+      districtIndex < districts.length;
+      districtIndex++
+    ) {
       const district = districts[districtIndex];
       const START_URL = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Public`;
-      
+
       onLog(`\n${"=".repeat(60)}`);
-      onLog(`📍 District ${districtIndex + 1}/${districts.length}: ${district}`);
+      onLog(
+        `📍 District ${districtIndex + 1}/${districts.length}: ${district}`
+      );
       onLog(`🚀 Opening: ${START_URL}  (years: ${yearStr})`);
       onLog(`${"=".repeat(60)}`);
 
@@ -378,25 +386,25 @@ export async function startBoardDocsCrawl({
         START_URL,
         years
       );
-      
+
       // Initialize district stats
       districtStats[district] = {
         totalMeetings: meetings.length,
         totalFiles: 0,
-        years: {}
+        years: {},
       };
-      
+
       // Count meetings per year
-      meetings.forEach(m => {
+      meetings.forEach((m) => {
         const year = m.year || "unknown";
         if (!districtStats[district].years[year]) {
           districtStats[district].years[year] = { meetings: 0, files: 0 };
         }
         districtStats[district].years[year].meetings++;
       });
-      
+
       onLog(`🗓️ Meetings discovered: ${meetings.length}`);
-      
+
       // Log breakdown by year
       const yearCounts = Object.entries(districtStats[district].years)
         .map(([year, data]) => `${year}: ${data.meetings}`)
@@ -404,9 +412,9 @@ export async function startBoardDocsCrawl({
       if (yearCounts) {
         onLog(`   └─ By year: ${yearCounts}`);
       }
-      
+
       totalMeetingsAllDistricts += meetings.length;
-      
+
       onProgress({
         phase: "discovery",
         district,
@@ -461,11 +469,19 @@ export async function startBoardDocsCrawl({
             const urls = extractFileLinksFromAgendaHTML(html, url);
             urls.forEach((u) => {
               const fileYear = m.year || "unknown";
-              allItems.push({ url: u, year: fileYear, meetingId: m.id, district });
-              
+              allItems.push({
+                url: u,
+                year: fileYear,
+                meetingId: m.id,
+                district,
+              });
+
               // Track files per year
               if (!districtStats[district].years[fileYear]) {
-                districtStats[district].years[fileYear] = { meetings: 0, files: 0 };
+                districtStats[district].years[fileYear] = {
+                  meetings: 0,
+                  files: 0,
+                };
               }
               districtStats[district].years[fileYear].files++;
               districtStats[district].totalFiles++;
@@ -486,8 +502,10 @@ export async function startBoardDocsCrawl({
       // ---- Step 2: Send all files to frontend (no deduplication) ----
       const totalCount = allItems.length;
 
-      onLog(`🔎 Files discovered: ${totalCount} (all files, including duplicates)`);
-      
+      onLog(
+        `🔎 Files discovered: ${totalCount} (all files, including duplicates)`
+      );
+
       // Log breakdown by year for this district
       const fileYearCounts = Object.entries(districtStats[district].years)
         .map(([year, data]) => `${year}: ${data.files}`)
@@ -495,7 +513,7 @@ export async function startBoardDocsCrawl({
       if (fileYearCounts) {
         onLog(`   └─ By year: ${fileYearCounts}`);
       }
-      
+
       onLog(`📡 Sending file list to browser for direct download...`);
 
       let sent = 0;
@@ -528,30 +546,32 @@ export async function startBoardDocsCrawl({
     onLog(`\n${"=".repeat(60)}`);
     onLog(`✅ All districts complete!`);
     onLog(`${"=".repeat(60)}`);
-    
+
     // Log comprehensive summary
     onLog(`\n📊 DISCOVERY SUMMARY:`);
     onLog(`${"─".repeat(60)}`);
-    
+
     let totalMeetings = 0;
     let totalFiles = 0;
-    
+
     // Per-district summary
     Object.entries(districtStats).forEach(([district, stats]) => {
       totalMeetings += stats.totalMeetings;
       totalFiles += stats.totalFiles;
-      
+
       onLog(`\n📍 District: ${district}`);
       onLog(`   Meetings: ${stats.totalMeetings}`);
       onLog(`   Files Found: ${stats.totalFiles}`);
-      
+
       // Per-year breakdown
-      const yearEntries = Object.entries(stats.years).sort(([a], [b]) => b.localeCompare(a));
+      const yearEntries = Object.entries(stats.years).sort(([a], [b]) =>
+        b.localeCompare(a)
+      );
       yearEntries.forEach(([year, data]) => {
         onLog(`   └─ ${year}: ${data.meetings} meetings, ${data.files} files`);
       });
     });
-    
+
     onLog(`\n${"─".repeat(60)}`);
     onLog(`📊 TOTALS:`);
     onLog(`   Total Meetings: ${totalMeetings}`);
@@ -559,7 +579,7 @@ export async function startBoardDocsCrawl({
     onLog(`   Total Files to Download: ${totalFilesAllDistricts}`);
     onLog(`   Districts Processed: ${districts.length}`);
     onLog(`${"─".repeat(60)}`);
-    
+
     onSummary({
       endedAt: fmtTs(RUN_END),
       elapsed: fmtDur(RUN_END - RUN_START),
