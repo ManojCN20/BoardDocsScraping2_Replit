@@ -6,6 +6,15 @@ This is a web scraping application that crawls BoardDocs websites to download me
 
 ## Recent Changes (November 7, 2025)
 
+**Detailed Statistics Tracking & Bug Fixes (Latest):**
+- Added comprehensive per-district and per-year statistics tracking throughout the crawler
+- Backend now tracks and logs meetings/files discovered per district and year with detailed summaries
+- Frontend displays detailed breakdown table showing all KPIs (meetings, files found, downloaded, failed, size, time) per district/year
+- Added "Grand Total" section when processing multiple districts
+- Fixed main meetings KPI to show cumulative total across all districts
+- Fixed "remaining downloads" calculation to accurately reflect files yet to be downloaded (filesFound - downloaded - failed)
+- All counters use refs to avoid stale closure issues in event handlers
+
 **No Deduplication + Unique Filenames + Complete Coverage:**
 - Removed all deduplication logic from both backend and frontend
 - All discovered files are now sent to frontend and downloaded (including duplicates)
