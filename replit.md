@@ -4,6 +4,14 @@
 
 This is a web scraping application that crawls BoardDocs websites to download meeting documents and agendas from school district boards. The system consists of a React-based frontend for user interaction and a Node.js backend that handles the actual web crawling using headless browsers (Playwright/Puppeteer). The crawler navigates through BoardDocs sites, extracts document links, and downloads files to the local filesystem, providing real-time progress updates via Server-Sent Events (SSE).
 
+## Recent Changes (November 7, 2025)
+
+**No Deduplication + Unique Filenames:**
+- Removed all deduplication logic from both backend and frontend
+- All discovered files are now sent to frontend and downloaded (including duplicates)
+- Files are named uniquely using document IDs (e.g., `Agenda__DOC123.pdf`) to prevent overwrites
+- Count of files found = count downloaded = count in folder (all three match)
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
