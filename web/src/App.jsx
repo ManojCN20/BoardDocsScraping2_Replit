@@ -28,7 +28,7 @@ function App() {
   const [finalAvgSpeed, setFinalAvgSpeed] = useState(null);
   const [totalBytesDownloaded, setTotalBytesDownloaded] = useState(0);
   const [isCancelling, setIsCancelling] = useState(false);
-  
+
   // Detailed statistics per district/year
   const [detailedStats, setDetailedStats] = useState({});
   // Structure: { district: { years: { year: { meetings, filesFound, downloaded, failed, downloadTime, bytes } }, total: {...} } }
@@ -53,14 +53,17 @@ function App() {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0"
+    )}:${String(secs).padStart(2, "0")}`;
   }
 
   // Helper function to format bytes into human-readable size
   function formatBytes(bytes) {
     if (!bytes || bytes === 0) return "0 B";
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
   }
@@ -70,14 +73,16 @@ function App() {
 
   // Update download time every second while downloading
   useEffect(() => {
-    if (downloadStartTimeRef.current && phase !== 'idle' && phase !== 'done') {
+    if (downloadStartTimeRef.current && phase !== "idle" && phase !== "done") {
       const timer = setInterval(() => {
         const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000;
         setCurrentDownloadTime(formatTime(elapsed));
       }, 1000);
       return () => clearInterval(timer);
     } else if (downloadEndTime && downloadStartTimeRef.current) {
-      setCurrentDownloadTime(formatTime((downloadEndTime - downloadStartTimeRef.current) / 1000));
+      setCurrentDownloadTime(
+        formatTime((downloadEndTime - downloadStartTimeRef.current) / 1000)
+      );
     }
   }, [downloadStartTime, downloadEndTime, phase]);
 
@@ -97,24 +102,42 @@ function App() {
   function addLog(message) {
     setLogLines((prev) => [...prev, message]);
   }
-  
+
   // Initialize or update detailed stats for a district/year
   function initializeDetailedStats(district, year) {
-    setDetailedStats(prev => {
+    setDetailedStats((prev) => {
       const newStats = { ...prev };
       if (!newStats[district]) {
-        newStats[district] = { years: {}, total: { meetings: 0, filesFound: 0, downloaded: 0, failed: 0, downloadTime: 0, bytes: 0 } };
+        newStats[district] = {
+          years: {},
+          total: {
+            meetings: 0,
+            filesFound: 0,
+            downloaded: 0,
+            failed: 0,
+            downloadTime: 0,
+            bytes: 0,
+          },
+        };
       }
       if (!newStats[district].years[year]) {
-        newStats[district].years[year] = { meetings: 0, filesFound: 0, downloaded: 0, failed: 0, downloadTime: 0, bytes: 0, startTime: null };
+        newStats[district].years[year] = {
+          meetings: 0,
+          filesFound: 0,
+          downloaded: 0,
+          failed: 0,
+          downloadTime: 0,
+          bytes: 0,
+          startTime: null,
+        };
       }
       return newStats;
     });
   }
-  
+
   // Update stats when a file is discovered
   function trackFileDiscovered(district, year) {
-    setDetailedStats(prev => {
+    setDetailedStats((prev) => {
       const newStats = { ...prev };
       if (newStats[district] && newStats[district].years[year]) {
         newStats[district].years[year].filesFound++;
@@ -123,10 +146,10 @@ function App() {
       return newStats;
     });
   }
-  
+
   // Update stats when a file is downloaded
   function trackFileDownloaded(district, year, bytes) {
-    setDetailedStats(prev => {
+    setDetailedStats((prev) => {
       const newStats = { ...prev };
       if (newStats[district] && newStats[district].years[year]) {
         newStats[district].years[year].downloaded++;
@@ -135,22 +158,27 @@ function App() {
           newStats[district].years[year].bytes += bytes;
           newStats[district].total.bytes += bytes;
         }
-        
+
         // Update download time
-        if (!newStats[district].years[year].startTime && downloadStartTimeRef.current) {
-          newStats[district].years[year].startTime = downloadStartTimeRef.current;
+        if (
+          !newStats[district].years[year].startTime &&
+          downloadStartTimeRef.current
+        ) {
+          newStats[district].years[year].startTime =
+            downloadStartTimeRef.current;
         }
         if (downloadStartTimeRef.current) {
-          newStats[district].years[year].downloadTime = (Date.now() - downloadStartTimeRef.current) / 1000;
+          newStats[district].years[year].downloadTime =
+            (Date.now() - downloadStartTimeRef.current) / 1000;
         }
       }
       return newStats;
     });
   }
-  
+
   // Update stats when a file fails
   function trackFileFailed(district, year) {
-    setDetailedStats(prev => {
+    setDetailedStats((prev) => {
       const newStats = { ...prev };
       if (newStats[district] && newStats[district].years[year]) {
         newStats[district].years[year].failed++;
@@ -163,45 +191,52 @@ function App() {
   function stopDownloads() {
     setIsCancelling(true);
     addLog("🛑 Stopping downloads...");
-    
+
     // Store how many we're skipping
     const queuedCount = downloadQueueRef.current.length;
     const activeCount = activeDownloadsRef.current;
-    
+
     // Clear download queue to prevent new downloads
     downloadQueueRef.current = [];
-    
+
     // Close EventSource if it exists
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    
+
     // Wait for active downloads to finish before finalizing (with timeout safeguard)
     const startWait = Date.now();
     const maxWaitTime = 60000; // 60 seconds max wait
-    
+
     const checkComplete = setInterval(() => {
       const elapsed = Date.now() - startWait;
-      
+
       if (activeDownloadsRef.current === 0 || elapsed > maxWaitTime) {
         clearInterval(checkComplete);
-        
+
         if (elapsed > maxWaitTime) {
-          addLog(`⚠️ Forced cancellation after ${(elapsed / 1000).toFixed(1)}s (${activeDownloadsRef.current} downloads still active)`);
+          addLog(
+            `⚠️ Forced cancellation after ${(elapsed / 1000).toFixed(1)}s (${
+              activeDownloadsRef.current
+            } downloads still active)`
+          );
         }
-        
+
         setPhase("cancelled");
         setSubmitting(false);
         isFinishingRef.current = false;
-        addLog(`❌ Cancelled. Completed ${activeCount} in-flight downloads, skipped ${queuedCount} queued.`);
-        
+        addLog(
+          `❌ Cancelled. Completed ${activeCount} in-flight downloads, skipped ${queuedCount} queued.`
+        );
+
         // Store final download metrics
         if (downloadStartTimeRef.current) {
           const endTime = Date.now();
           setDownloadEndTime(endTime);
           const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
-          const megabytesDownloaded = totalBytesDownloadedRef.current / (1024 * 1024);
+          const megabytesDownloaded =
+            totalBytesDownloadedRef.current / (1024 * 1024);
           setFinalDownloadTime(totalTime);
           if (totalTime > 0) {
             setFinalAvgSpeed(megabytesDownloaded / totalTime);
@@ -269,19 +304,24 @@ function App() {
             filesDownloadedRef.current = newCount; // Keep ref in sync
             return newCount;
           });
-          
+
           // Track in detailed stats
-          trackFileDownloaded(fileInfo.district, fileInfo.year, bytesDownloaded || 0);
-          
+          trackFileDownloaded(
+            fileInfo.district,
+            fileInfo.year,
+            bytesDownloaded || 0
+          );
+
           // Track bytes and calculate speed in MB/s (skip if fallback download)
           if (bytesDownloaded && bytesDownloaded > 0) {
             setTotalBytesDownloaded((prev) => {
               const newTotal = prev + bytesDownloaded;
               totalBytesDownloadedRef.current = newTotal;
-              
+
               // Update download speed in MB/s
               if (downloadStartTimeRef.current) {
-                const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000; // seconds
+                const elapsed =
+                  (Date.now() - downloadStartTimeRef.current) / 1000; // seconds
                 const megabytes = newTotal / (1024 * 1024);
                 const speed = megabytes / elapsed;
                 setDownloadSpeed(speed);
@@ -308,9 +348,19 @@ function App() {
     }
   }
 
+  function sanitizeFilename(name) {
+    // Replace illegal characters for cross-platform compatibility
+    return name
+      .replace(/^[~]+/, "") // remove leading ~
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_") // invalid chars on Windows/macOS
+      .replace(/\s+/g, " ") // normalize whitespace
+      .trim();
+  }
+
   async function downloadFileWithStructure(jobId, fileInfo, retries = 3) {
-    const filename =
+    const rawName =
       fileInfo.filename || fileInfo.path?.split("/").pop() || "file";
+    const filename = sanitizeFilename(rawName);
     const downloadUrl = fileInfo.url;
 
     if (!downloadUrl) {
@@ -335,7 +385,7 @@ function App() {
             fileInfo.year || "unknown",
             { create: true }
           );
-          
+
           const fileHandle = await yearDir.getFileHandle(filename, {
             create: true,
           });
@@ -453,17 +503,23 @@ function App() {
           years: selectedYears,
         }),
       });
-      
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         const errorMsg = errorData.error || `HTTP ${res.status}`;
         throw new Error(errorMsg);
       }
-      
+
       const { jobId } = await res.json();
       setJobId(jobId);
-      const yearStr = selectedYears.includes("all") ? "all years" : selectedYears.join(", ");
-      addLog(`🚀 Started job ${jobId} for ${state}/${districtList.join(", ")} - ${yearStr}`);
+      const yearStr = selectedYears.includes("all")
+        ? "all years"
+        : selectedYears.join(", ");
+      addLog(
+        `🚀 Started job ${jobId} for ${state}/${districtList.join(
+          ", "
+        )} - ${yearStr}`
+      );
       connectSSE(jobId);
     } catch (e) {
       addLog(`❌ Failed to start: ${e.message}`);
@@ -509,33 +565,51 @@ function App() {
         // Don't update filesDiscovered from server - frontend tracks all files (including duplicates)
         // Don't update filesDownloaded from server - frontend tracks its own downloads
         if (p.startedAt) setStartedAt(p.startedAt);
-        
+
         // Process district stats from backend
         if (p.districtStats) {
-          setDetailedStats(prev => {
+          setDetailedStats((prev) => {
             const newStats = { ...prev };
-            
+
             // Process each district's stats from backend
             Object.entries(p.districtStats).forEach(([district, stats]) => {
               if (!newStats[district]) {
-                newStats[district] = { years: {}, total: { meetings: 0, filesFound: 0, downloaded: 0, failed: 0, downloadTime: 0, bytes: 0 } };
+                newStats[district] = {
+                  years: {},
+                  total: {
+                    meetings: 0,
+                    filesFound: 0,
+                    downloaded: 0,
+                    failed: 0,
+                    downloadTime: 0,
+                    bytes: 0,
+                  },
+                };
               }
-              
+
               // Update total meetings for district
               newStats[district].total.meetings = stats.totalMeetings || 0;
-              
+
               // Process each year's stats
               if (stats.years) {
                 Object.entries(stats.years).forEach(([year, yearData]) => {
                   if (!newStats[district].years[year]) {
-                    newStats[district].years[year] = { meetings: 0, filesFound: 0, downloaded: 0, failed: 0, downloadTime: 0, bytes: 0, startTime: null };
+                    newStats[district].years[year] = {
+                      meetings: 0,
+                      filesFound: 0,
+                      downloaded: 0,
+                      failed: 0,
+                      downloadTime: 0,
+                      bytes: 0,
+                      startTime: null,
+                    };
                   }
-                  newStats[district].years[year].meetings = yearData.meetings || 0;
-                  newStats[district].years[year].filesFound = yearData.files || 0;
+                  newStats[district].years[year].meetings =
+                    yearData.meetings || 0;
                 });
               }
             });
-            
+
             return newStats;
           });
         }
@@ -545,24 +619,24 @@ function App() {
     es.addEventListener("file", (evt) => {
       try {
         const f = JSON.parse(evt.data);
-        
+
         // Normalize missing metadata to "unknown"
         const normalizedFile = {
           ...f,
           year: f.year || "unknown",
           meetingId: f.meetingId || "unknown",
-          district: f.district || "unknown"
+          district: f.district || "unknown",
         };
-        
+
         // Ensure stats are initialized for this district/year
         initializeDetailedStats(normalizedFile.district, normalizedFile.year);
-        
+
         // Track file discovered in detailed stats
         trackFileDiscovered(normalizedFile.district, normalizedFile.year);
-        
+
         // Process all files without deduplication
         setFiles((prev) => [normalizedFile, ...prev]);
-        
+
         // Increment filesDiscovered for all files
         setFilesDiscovered((prev) => {
           const newCount = prev + 1;
@@ -572,7 +646,10 @@ function App() {
 
         if (autoDownload && normalizedFile.url) {
           // Start download timer on first file
-          if (!downloadStartTimeRef.current && downloadQueueRef.current.length === 0) {
+          if (
+            !downloadStartTimeRef.current &&
+            downloadQueueRef.current.length === 0
+          ) {
             const now = Date.now();
             setDownloadStartTime(now);
             downloadStartTimeRef.current = now;
@@ -589,29 +666,38 @@ function App() {
         const s = JSON.parse(evt.data);
         setPhase("finishing");
         isFinishingRef.current = true;
-        
+
         // Calculate actual remaining: total found - already downloaded - already failed
-        const remaining = filesDiscoveredRef.current - filesDownloadedRef.current - filesFailedRef.current;
-        addLog(`📊 Discovery complete. Waiting for ${remaining} remaining downloads...`);
-        
+        const remaining =
+          filesDiscoveredRef.current -
+          filesDownloadedRef.current -
+          filesFailedRef.current;
+        addLog(
+          `📊 Discovery complete. Waiting for ${remaining} remaining downloads...`
+        );
+
         // Wait for all downloads to finish before showing final summary
         const checkComplete = setInterval(() => {
-          if (downloadQueueRef.current.length === 0 && activeDownloadsRef.current === 0) {
+          if (
+            downloadQueueRef.current.length === 0 &&
+            activeDownloadsRef.current === 0
+          ) {
             clearInterval(checkComplete);
-            
+
             // Store final download metrics using current ref values
             const endTime = Date.now();
             setDownloadEndTime(endTime);
             if (downloadStartTimeRef.current) {
               const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
-              const megabytesDownloaded = totalBytesDownloadedRef.current / (1024 * 1024);
+              const megabytesDownloaded =
+                totalBytesDownloadedRef.current / (1024 * 1024);
               setFinalDownloadTime(totalTime);
               // Guard against division by zero
               if (totalTime > 0) {
                 setFinalAvgSpeed(megabytesDownloaded / totalTime);
               }
             }
-            
+
             setEndedAt(s.endedAt || null);
             setElapsed(s.elapsed || null);
             setPhase("done");
@@ -720,13 +806,27 @@ function App() {
               onChange={(e) => setDistricts(e.target.value.toLowerCase())}
               required
             />
-            <small style={{ fontSize: 11, color: "#64748b", marginTop: 4, display: "block" }}>
+            <small
+              style={{
+                fontSize: 11,
+                color: "#64748b",
+                marginTop: 4,
+                display: "block",
+              }}
+            >
               Enter up to 10 district codes separated by commas
             </small>
           </div>
 
           <div>
-            <label style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: "block" }}>
+            <label
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                marginBottom: 8,
+                display: "block",
+              }}
+            >
               Year(s) - Select multiple
             </label>
             <div
@@ -751,8 +851,12 @@ function App() {
                     borderRadius: 6,
                     transition: "background 0.15s",
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = "#f1f5f9")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
                 >
                   <input
                     type="checkbox"
@@ -771,7 +875,14 @@ function App() {
               ))}
             </div>
             {selectedYears.length === 0 && (
-              <small style={{ color: "#ef4444", fontSize: 12, marginTop: 4, display: "block" }}>
+              <small
+                style={{
+                  color: "#ef4444",
+                  fontSize: 12,
+                  marginTop: 4,
+                  display: "block",
+                }}
+              >
                 Please select at least one year
               </small>
             )}
@@ -895,18 +1006,15 @@ function App() {
           <StatCard label="Files Found" value={filesDiscovered} />
           <StatCard label="Downloaded" value={filesDownloaded} />
           <StatCard label="Failed" value={failed} />
-          <StatCard 
-            label="Total Size" 
-            value={formatBytes(totalBytesDownloaded)} 
+          <StatCard
+            label="Total Size"
+            value={formatBytes(totalBytesDownloaded)}
           />
-          <StatCard 
-            label="Speed" 
-            value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(2)} MB/s` : "—"} 
+          <StatCard
+            label="Speed"
+            value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(2)} MB/s` : "—"}
           />
-          <StatCard 
-            label="Download Time" 
-            value={currentDownloadTime} 
-          />
+          <StatCard label="Download Time" value={currentDownloadTime} />
         </section>
 
         {/* Detailed Stats Breakdown */}
@@ -926,124 +1034,250 @@ function App() {
             <div style={{ overflowX: "auto" }}>
               {Object.entries(detailedStats).map(([district, districtData]) => (
                 <div key={district} style={{ marginBottom: 24 }}>
-                  <h3 style={{ 
-                    fontWeight: 600, 
-                    fontSize: 14, 
-                    marginBottom: 8,
-                    color: "#1e40af",
-                    textTransform: "uppercase"
-                  }}>
+                  <h3
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 14,
+                      marginBottom: 8,
+                      color: "#1e40af",
+                      textTransform: "uppercase",
+                    }}
+                  >
                     📍 {district}
                   </h3>
-                  <table style={{ 
-                    width: "100%", 
-                    borderCollapse: "collapse",
-                    fontSize: 13,
-                    marginBottom: 12
-                  }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 13,
+                      marginBottom: 12,
+                    }}
+                  >
                     <thead>
-                      <tr style={{ 
-                        background: "#f8fafc", 
-                        borderBottom: "2px solid #e2e8f0" 
-                      }}>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "left",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Year</th>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Meetings</th>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Files Found</th>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Downloaded</th>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Failed</th>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Size</th>
-                        <th style={{ 
-                          padding: "8px 12px", 
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: "#475569"
-                        }}>Time</th>
+                      <tr
+                        style={{
+                          background: "#f8fafc",
+                          borderBottom: "2px solid #e2e8f0",
+                        }}
+                      >
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "left",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Year
+                        </th>
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Meetings
+                        </th>
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Files Found
+                        </th>
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Downloaded
+                        </th>
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Failed
+                        </th>
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Size
+                        </th>
+                        <th
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#475569",
+                          }}
+                        >
+                          Time
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {Object.entries(districtData.years)
                         .sort(([a], [b]) => b.localeCompare(a))
                         .map(([year, yearData]) => (
-                        <tr key={year} style={{ 
-                          borderBottom: "1px solid #f1f5f9",
-                          transition: "background 0.15s"
+                          <tr
+                            key={year}
+                            style={{
+                              borderBottom: "1px solid #f1f5f9",
+                              transition: "background 0.15s",
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.background = "#f8fafc")
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.background = "transparent")
+                            }
+                          >
+                            <td
+                              style={{ padding: "8px 12px", color: "#64748b" }}
+                            >
+                              {year}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 12px",
+                                textAlign: "right",
+                                color: "#334155",
+                              }}
+                            >
+                              {yearData.meetings}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 12px",
+                                textAlign: "right",
+                                color: "#334155",
+                              }}
+                            >
+                              {yearData.filesFound}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 12px",
+                                textAlign: "right",
+                                color: "#334155",
+                              }}
+                            >
+                              {yearData.downloaded}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 12px",
+                                textAlign: "right",
+                                color:
+                                  yearData.failed > 0 ? "#dc2626" : "#334155",
+                              }}
+                            >
+                              {yearData.failed}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 12px",
+                                textAlign: "right",
+                                color: "#334155",
+                              }}
+                            >
+                              {formatBytes(yearData.bytes || 0)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 12px",
+                                textAlign: "right",
+                                color: "#334155",
+                              }}
+                            >
+                              {yearData.downloadTime > 0
+                                ? formatTime(yearData.downloadTime)
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      <tr
+                        style={{
+                          background: "#eff6ff",
+                          borderTop: "2px solid #93c5fd",
+                          fontWeight: 600,
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
-                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                      >
+                        <td style={{ padding: "8px 12px", color: "#1e40af" }}>
+                          Total
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            color: "#1e40af",
+                          }}
                         >
-                          <td style={{ padding: "8px 12px", color: "#64748b" }}>{year}</td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: "#334155" }}>
-                            {yearData.meetings}
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: "#334155" }}>
-                            {yearData.filesFound}
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: "#334155" }}>
-                            {yearData.downloaded}
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: yearData.failed > 0 ? "#dc2626" : "#334155" }}>
-                            {yearData.failed}
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: "#334155" }}>
-                            {formatBytes(yearData.bytes || 0)}
-                          </td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", color: "#334155" }}>
-                            {yearData.downloadTime > 0 ? formatTime(yearData.downloadTime) : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr style={{ 
-                        background: "#eff6ff", 
-                        borderTop: "2px solid #93c5fd",
-                        fontWeight: 600
-                      }}>
-                        <td style={{ padding: "8px 12px", color: "#1e40af" }}>Total</td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e40af" }}>
                           {districtData.total.meetings}
                         </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e40af" }}>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            color: "#1e40af",
+                          }}
+                        >
                           {districtData.total.filesFound}
                         </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e40af" }}>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            color: "#1e40af",
+                          }}
+                        >
                           {districtData.total.downloaded}
                         </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: districtData.total.failed > 0 ? "#dc2626" : "#1e40af" }}>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            color:
+                              districtData.total.failed > 0
+                                ? "#dc2626"
+                                : "#1e40af",
+                          }}
+                        >
                           {districtData.total.failed}
                         </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e40af" }}>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            color: "#1e40af",
+                          }}
+                        >
                           {formatBytes(districtData.total.bytes || 0)}
                         </td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", color: "#1e40af" }}>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            textAlign: "right",
+                            color: "#1e40af",
+                          }}
+                        >
                           —
                         </td>
                       </tr>
@@ -1051,57 +1285,157 @@ function App() {
                   </table>
                 </div>
               ))}
-              
+
               {/* Grand Total across all districts */}
               {Object.keys(detailedStats).length > 1 && (
-                <div style={{ 
-                  marginTop: 16, 
-                  padding: 12,
-                  background: "#f0fdf4",
-                  borderRadius: 8,
-                  border: "1px solid #86efac"
-                }}>
-                  <h3 style={{ 
-                    fontWeight: 600, 
-                    fontSize: 14, 
-                    marginBottom: 8,
-                    color: "#166534"
-                  }}>
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: 12,
+                    background: "#f0fdf4",
+                    borderRadius: 8,
+                    border: "1px solid #86efac",
+                  }}
+                >
+                  <h3
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 14,
+                      marginBottom: 8,
+                      color: "#166534",
+                    }}
+                  >
                     🎯 Grand Total (All Districts)
                   </h3>
-                  <div style={{ 
-                    display: "grid", 
-                    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                    gap: 12 
-                  }}>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(120px, 1fr))",
+                      gap: 12,
+                    }}
+                  >
                     <div>
-                      <div style={{ fontSize: 11, color: "#15803d", marginBottom: 2 }}>Meetings</div>
-                      <div style={{ fontSize: 16, fontWeight: 600, color: "#166534" }}>
-                        {Object.values(detailedStats).reduce((sum, d) => sum + d.total.meetings, 0)}
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#15803d",
+                          marginBottom: 2,
+                        }}
+                      >
+                        Meetings
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: "#166534",
+                        }}
+                      >
+                        {Object.values(detailedStats).reduce(
+                          (sum, d) => sum + d.total.meetings,
+                          0
+                        )}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: "#15803d", marginBottom: 2 }}>Files Found</div>
-                      <div style={{ fontSize: 16, fontWeight: 600, color: "#166534" }}>
-                        {Object.values(detailedStats).reduce((sum, d) => sum + d.total.filesFound, 0)}
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#15803d",
+                          marginBottom: 2,
+                        }}
+                      >
+                        Files Found
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: "#166534",
+                        }}
+                      >
+                        {Object.values(detailedStats).reduce(
+                          (sum, d) => sum + d.total.filesFound,
+                          0
+                        )}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: "#15803d", marginBottom: 2 }}>Downloaded</div>
-                      <div style={{ fontSize: 16, fontWeight: 600, color: "#166534" }}>
-                        {Object.values(detailedStats).reduce((sum, d) => sum + d.total.downloaded, 0)}
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#15803d",
+                          marginBottom: 2,
+                        }}
+                      >
+                        Downloaded
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: "#166534",
+                        }}
+                      >
+                        {Object.values(detailedStats).reduce(
+                          (sum, d) => sum + d.total.downloaded,
+                          0
+                        )}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: "#15803d", marginBottom: 2 }}>Failed</div>
-                      <div style={{ fontSize: 16, fontWeight: 600, color: Object.values(detailedStats).reduce((sum, d) => sum + d.total.failed, 0) > 0 ? "#dc2626" : "#166534" }}>
-                        {Object.values(detailedStats).reduce((sum, d) => sum + d.total.failed, 0)}
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#15803d",
+                          marginBottom: 2,
+                        }}
+                      >
+                        Failed
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color:
+                            Object.values(detailedStats).reduce(
+                              (sum, d) => sum + d.total.failed,
+                              0
+                            ) > 0
+                              ? "#dc2626"
+                              : "#166534",
+                        }}
+                      >
+                        {Object.values(detailedStats).reduce(
+                          (sum, d) => sum + d.total.failed,
+                          0
+                        )}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: "#15803d", marginBottom: 2 }}>Total Size</div>
-                      <div style={{ fontSize: 16, fontWeight: 600, color: "#166534" }}>
-                        {formatBytes(Object.values(detailedStats).reduce((sum, d) => sum + d.total.bytes, 0))}
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#15803d",
+                          marginBottom: 2,
+                        }}
+                      >
+                        Total Size
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: "#166534",
+                        }}
+                      >
+                        {formatBytes(
+                          Object.values(detailedStats).reduce(
+                            (sum, d) => sum + d.total.bytes,
+                            0
+                          )
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1254,8 +1588,12 @@ function App() {
                                 textDecoration: "none",
                                 fontSize: 13,
                               }}
-                              onMouseEnter={(e) => e.target.style.textDecoration = "underline"}
-                              onMouseLeave={(e) => e.target.style.textDecoration = "none"}
+                              onMouseEnter={(e) =>
+                                (e.target.style.textDecoration = "underline")
+                              }
+                              onMouseLeave={(e) =>
+                                (e.target.style.textDecoration = "none")
+                              }
                             >
                               Link
                             </a>
@@ -1301,24 +1639,28 @@ function App() {
             <div>Discovery: {elapsed || "—"}</div>
             <div>
               Downloads: {filesDownloaded} / {filesDiscovered}
-              {filesDiscovered > 0 && ` (${((filesDownloaded / filesDiscovered) * 100).toFixed(1)}%)`}
+              {filesDiscovered > 0 &&
+                ` (${((filesDownloaded / filesDiscovered) * 100).toFixed(1)}%)`}
             </div>
             <div>
-              Download Time: {
-                finalDownloadTime !== null
-                  ? formatTime(finalDownloadTime)
-                  : downloadStartTime && phase !== "idle"
-                  ? `${formatTime((Date.now() - downloadStartTime) / 1000)} (ongoing)`
-                  : "—"
-              }
+              Download Time:{" "}
+              {finalDownloadTime !== null
+                ? formatTime(finalDownloadTime)
+                : downloadStartTime && phase !== "idle"
+                ? `${formatTime(
+                    (Date.now() - downloadStartTime) / 1000
+                  )} (ongoing)`
+                : "—"}
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              {phase === "done" && filesDownloaded > 0 && finalAvgSpeed !== null && (
-                <span>
-                  Avg Speed: {finalAvgSpeed.toFixed(2)} MB/s
-                  {failed > 0 && ` • ${failed} failed`}
-                </span>
-              )}
+              {phase === "done" &&
+                filesDownloaded > 0 &&
+                finalAvgSpeed !== null && (
+                  <span>
+                    Avg Speed: {finalAvgSpeed.toFixed(2)} MB/s
+                    {failed > 0 && ` • ${failed} failed`}
+                  </span>
+                )}
             </div>
           </div>
         </section>
