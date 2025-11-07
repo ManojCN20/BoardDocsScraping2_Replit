@@ -199,7 +199,11 @@ async function collectMeetings(browser, START_URL, YEARS_ARG) {
     const sectionYear = yearMatch ? yearMatch[1] : null;
 
     // Skip this section if we're filtering by specific years and this section doesn't match
-    if (!YEARS_ARG.includes("all") && sectionYear && !YEARS_ARG.includes(sectionYear)) {
+    if (
+      !YEARS_ARG.includes("all") &&
+      sectionYear &&
+      !YEARS_ARG.includes(sectionYear)
+    ) {
       continue;
     }
 
@@ -233,8 +237,8 @@ async function collectMeetings(browser, START_URL, YEARS_ARG) {
 
     // Assign the section year to all meetings in this section
     const meetingsWithYear = meetings
-      .filter(m => m.id)
-      .map(m => ({ ...m, year: sectionYear }));
+      .filter((m) => m.id)
+      .map((m) => ({ ...m, year: sectionYear }));
 
     all.push(...meetingsWithYear);
   }
@@ -267,7 +271,7 @@ async function primeSessionAgenda(page, mframe, meetingId) {
           .catch(() => {});
         await sleep(250);
       })(),
-      sleep(5000)
+      sleep(5000),
     ]);
   } catch (e) {
     // Priming failed, continue anyway
@@ -289,21 +293,74 @@ export async function startBoardDocsCrawl({
 }) {
   const RUN_START = Date.now();
   const START_URL = `https://go.boarddocs.com/${state}/${district}/Board.nsf/Public`;
-  
+
   onLog(`📡 Files will download directly to your browser`);
 
   try {
     const yearStr = years.includes("all") ? "all years" : years.join(", ");
     onLog(`🚀 Opening: ${START_URL}  (years: ${yearStr})`);
+
+    function findChromiumPath() {
+      const macChromiumPaths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/usr/bin/google-chrome",
+        "/opt/homebrew/bin/chromium",
+      ];
+
+      // 1️⃣ Use CHROMIUM_PATH env var if valid
+      if (
+        process.env.CHROMIUM_PATH &&
+        fs.existsSync(process.env.CHROMIUM_PATH)
+      ) {
+        return process.env.CHROMIUM_PATH;
+      }
+
+      // 2️⃣ Try common macOS/Linux Chromium paths
+      for (const path of macChromiumPaths) {
+        if (fs.existsSync(path)) return path;
+      }
+
+      // 3️⃣ Try Playwright’s bundled Chromium
+      try {
+        const pw = require("playwright-core");
+        const browserPath = pw.chromium.executablePath();
+        if (fs.existsSync(browserPath)) return browserPath;
+      } catch (e) {
+        // ignore
+      }
+
+      // 4️⃣ Fallback (old Nix path, for compatibility)
+      const nixPath =
+        "/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium";
+      if (fs.existsSync(nixPath)) return nixPath;
+
+      throw new Error(
+        "❌ Chromium executable not found. Please install Chrome or run `npx playwright install chromium`."
+      );
+    }
+
+    const executablePath = findChromiumPath();
+
+    // ✅ Launch Chromium with fallback logic
     const browser = await chromium.launch({
       headless,
-      executablePath: process.env.CHROMIUM_PATH || '/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium',
+      executablePath,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-      ]
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
+      // const browser = await chromium.launch({
+      //   headless,
+      //   executablePath: process.env.CHROMIUM_PATH || '/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium',
+      //   args: [
+      //     '--no-sandbox',
+      //     '--disable-setuid-sandbox',
+      //     '--disable-dev-shm-usage',
+      //     '--disable-gpu'
+      //   ]
     });
 
     const { page, context, meetings, mframe } = await collectMeetings(
@@ -384,9 +441,11 @@ export async function startBoardDocsCrawl({
     for (const it of allItems) if (!byUrl.has(it.url)) byUrl.set(it.url, it);
     const finalItems = Array.from(byUrl.values());
     const duplicatesRemoved = rawCount - finalItems.length;
-    
+
     if (duplicatesRemoved > 0) {
-      onLog(`🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`);
+      onLog(
+        `🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`
+      );
     } else {
       onLog(`🔎 Files discovered: ${finalItems.length}`);
     }
@@ -395,12 +454,12 @@ export async function startBoardDocsCrawl({
     let sent = 0;
     for (const { url, year: y, meetingId } of finalItems) {
       const filename = fileNameFromUrl(url);
-      onFile({ 
-        url, 
-        year: y, 
-        meetingId, 
+      onFile({
+        url,
+        year: y,
+        meetingId,
         filename,
-        cookieHeader 
+        cookieHeader,
       });
       sent++;
       onProgress({
