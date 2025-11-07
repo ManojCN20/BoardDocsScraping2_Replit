@@ -303,6 +303,7 @@ export async function startBoardDocsCrawl({
   onLog(`🎯 Processing ${districts.length} district(s): ${districts.join(", ")}`);
 
   let totalFilesAllDistricts = 0;
+  let totalMeetingsAllDistricts = 0;
   const districtStats = {}; // { district: { totalMeetings, totalFiles, years: { year: { meetings, files } } } }
 
   try {
@@ -404,12 +405,14 @@ export async function startBoardDocsCrawl({
         onLog(`   └─ By year: ${yearCounts}`);
       }
       
+      totalMeetingsAllDistricts += meetings.length;
+      
       onProgress({
         phase: "discovery",
         district,
         districtIndex: districtIndex + 1,
         totalDistricts: districts.length,
-        meetings: meetings.length,
+        meetings: totalMeetingsAllDistricts, // Send cumulative total
         districtStats,
         startedAt: fmtTs(RUN_START),
       });

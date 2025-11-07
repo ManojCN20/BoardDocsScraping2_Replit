@@ -37,7 +37,9 @@ function App() {
   const maxConcurrentDownloads = 24;
   const totalFilesExpectedRef = useRef(0);
   const downloadStartTimeRef = useRef(null);
+  const filesDiscoveredRef = useRef(0);
   const filesDownloadedRef = useRef(0);
+  const filesFailedRef = useRef(0);
   const totalBytesDownloadedRef = useRef(0);
   const eventSourceRef = useRef(null);
   const isFinishingRef = useRef(false);
@@ -289,7 +291,11 @@ function App() {
           }
         })
         .catch(() => {
-          setFailed((prev) => prev + 1);
+          setFailed((prev) => {
+            const newCount = prev + 1;
+            filesFailedRef.current = newCount; // Keep ref in sync
+            return newCount;
+          });
           // Track in detailed stats
           trackFileFailed(fileInfo.district, fileInfo.year);
         })
@@ -404,7 +410,9 @@ function App() {
     activeDownloadsRef.current = 0;
     totalFilesExpectedRef.current = 0;
     downloadStartTimeRef.current = null;
+    filesDiscoveredRef.current = 0;
     filesDownloadedRef.current = 0;
+    filesFailedRef.current = 0;
     totalBytesDownloadedRef.current = 0;
     isFinishingRef.current = false;
 
@@ -556,7 +564,11 @@ function App() {
         setFiles((prev) => [normalizedFile, ...prev]);
         
         // Increment filesDiscovered for all files
-        setFilesDiscovered((prev) => prev + 1);
+        setFilesDiscovered((prev) => {
+          const newCount = prev + 1;
+          filesDiscoveredRef.current = newCount; // Keep ref in sync
+          return newCount;
+        });
 
         if (autoDownload && normalizedFile.url) {
           // Start download timer on first file
@@ -577,7 +589,10 @@ function App() {
         const s = JSON.parse(evt.data);
         setPhase("finishing");
         isFinishingRef.current = true;
-        addLog(`📊 Discovery complete. Waiting for ${downloadQueueRef.current.length + activeDownloadsRef.current} remaining downloads...`);
+        
+        // Calculate actual remaining: total found - already downloaded - already failed
+        const remaining = filesDiscoveredRef.current - filesDownloadedRef.current - filesFailedRef.current;
+        addLog(`📊 Discovery complete. Waiting for ${remaining} remaining downloads...`);
         
         // Wait for all downloads to finish before showing final summary
         const checkComplete = setInterval(() => {
