@@ -160,7 +160,7 @@ function extractFileLinksFromAgendaHTML(html, baseUrl) {
 }
 
 /* ---------- Discovery (UI once) ---------- */
-async function collectMeetings(browser, START_URL, YEAR_ARG) {
+async function collectMeetings(browser, START_URL, YEARS_ARG) {
   const context = await browser.newContext();
   const page = await context.newPage();
   await gotoWithRetries(page, START_URL);
@@ -193,6 +193,16 @@ async function collectMeetings(browser, START_URL, YEAR_ARG) {
       .getAttribute("aria-controls")
       .catch(() => null);
 
+    // Extract year from section header text
+    const headerText = await header.textContent().catch(() => "");
+    const yearMatch = headerText.match(/\b(20\d{2})\b/);
+    const sectionYear = yearMatch ? yearMatch[1] : null;
+
+    // Skip this section if we're filtering by specific years and this section doesn't match
+    if (!YEARS_ARG.includes("all") && sectionYear && !YEARS_ARG.includes(sectionYear)) {
+      continue;
+    }
+
     await header.click({ timeout: 2000 }).catch(() => {});
     await sleep(100);
     const expanded = await header
@@ -216,16 +226,17 @@ async function collectMeetings(browser, START_URL, YEAR_ARG) {
       .evaluateAll((as) =>
         as.map((a) => ({
           id: a.getAttribute("id"),
-          year: a.getAttribute("year"),
           text: (a.textContent || "").trim(),
         }))
       )
       .catch(() => []);
 
-    const filtered = meetings.filter(
-      (m) => m.id && (YEAR_ARG === "all" || m.year === YEAR_ARG)
-    );
-    all.push(...filtered);
+    // Assign the section year to all meetings in this section
+    const meetingsWithYear = meetings
+      .filter(m => m.id)
+      .map(m => ({ ...m, year: sectionYear }));
+
+    all.push(...meetingsWithYear);
   }
 
   const seen = new Set(),
@@ -267,7 +278,7 @@ async function primeSessionAgenda(page, mframe, meetingId) {
 export async function startBoardDocsCrawl({
   state = "pa",
   district,
-  year = "all",
+  years = ["all"],
   outDir = `downloads_${district}`,
   headless = true,
   dlConcurrency = 16,
@@ -282,7 +293,8 @@ export async function startBoardDocsCrawl({
   onLog(`📡 Files will download directly to your browser`);
 
   try {
-    onLog(`🚀 Opening: ${START_URL}  (year: ${year})`);
+    const yearStr = years.includes("all") ? "all years" : years.join(", ");
+    onLog(`🚀 Opening: ${START_URL}  (years: ${yearStr})`);
     const browser = await chromium.launch({
       headless,
       executablePath: process.env.CHROMIUM_PATH || '/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium',
@@ -297,7 +309,7 @@ export async function startBoardDocsCrawl({
     const { page, context, meetings, mframe } = await collectMeetings(
       browser,
       START_URL,
-      year
+      years
     );
     onLog(`🗓️ Meetings discovered: ${meetings.length}`);
     onProgress({
@@ -367,10 +379,17 @@ export async function startBoardDocsCrawl({
     await agendaQueue.onIdle();
 
     // ---- Step 2: Dedup and send files to frontend ----
+    const rawCount = allItems.length;
     const byUrl = new Map();
     for (const it of allItems) if (!byUrl.has(it.url)) byUrl.set(it.url, it);
     const finalItems = Array.from(byUrl.values());
-    onLog(`🔎 Files discovered: ${finalItems.length}`);
+    const duplicatesRemoved = rawCount - finalItems.length;
+    
+    if (duplicatesRemoved > 0) {
+      onLog(`🔎 Files discovered: ${finalItems.length} unique (${duplicatesRemoved} duplicates removed from ${rawCount} total)`);
+    } else {
+      onLog(`🔎 Files discovered: ${finalItems.length}`);
+    }
     onLog(`📡 Sending file list to browser for direct download...`);
 
     let sent = 0;

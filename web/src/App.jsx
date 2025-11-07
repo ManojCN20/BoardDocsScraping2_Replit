@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 function App() {
   const [state, setState] = useState("");
   const [district, setDistrict] = useState("");
-  const [year, setYear] = useState("all");
+  const [selectedYears, setSelectedYears] = useState(["all"]);
   const [submitting, setSubmitting] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [phase, setPhase] = useState("idle");
@@ -21,12 +21,61 @@ function App() {
   const [autoDownload, setAutoDownload] = useState(true);
   const [downloadDir, setDownloadDir] = useState(null);
   const [downloadDirName, setDownloadDirName] = useState("");
+  const [downloadSpeed, setDownloadSpeed] = useState(0);
+  const [downloadStartTime, setDownloadStartTime] = useState(null);
+  const [downloadEndTime, setDownloadEndTime] = useState(null);
+  const [finalDownloadTime, setFinalDownloadTime] = useState(null);
+  const [finalAvgSpeed, setFinalAvgSpeed] = useState(null);
+  const [totalBytesDownloaded, setTotalBytesDownloaded] = useState(0);
+  const [isCancelling, setIsCancelling] = useState(false);
   const downloadQueueRef = useRef([]);
   const activeDownloadsRef = useRef(0);
-  const maxConcurrentDownloads = 4;
+  const maxConcurrentDownloads = 24;
+  const totalFilesExpectedRef = useRef(0);
+  const downloadStartTimeRef = useRef(null);
+  const filesDownloadedRef = useRef(0);
+  const totalBytesDownloadedRef = useRef(0);
+  const eventSourceRef = useRef(null);
+  const isFinishingRef = useRef(false);
+  const seenFilesRef = useRef(new Set()); // Track unique files by path
   // const API_BASE = import.meta.env.VITE_API_BASE || "";
 
   const logRef = useRef(null);
+
+  // Helper function to format time in hh:mm:ss format
+  function formatTime(seconds) {
+    if (!seconds || seconds <= 0) return "00:00:00";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  // Helper function to format bytes into human-readable size
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+  }
+
+  // Calculate current download elapsed time
+  const [currentDownloadTime, setCurrentDownloadTime] = useState("00:00:00");
+
+  // Update download time every second while downloading
+  useEffect(() => {
+    if (downloadStartTimeRef.current && phase !== 'idle' && phase !== 'done') {
+      const timer = setInterval(() => {
+        const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000;
+        setCurrentDownloadTime(formatTime(elapsed));
+      }, 1000);
+      return () => clearInterval(timer);
+    } else if (downloadEndTime && downloadStartTimeRef.current) {
+      setCurrentDownloadTime(formatTime((downloadEndTime - downloadStartTimeRef.current) / 1000));
+    }
+  }, [downloadStartTime, downloadEndTime, phase]);
+
   useEffect(() => {
     if (autoScroll && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -42,6 +91,72 @@ function App() {
 
   function addLog(message) {
     setLogLines((prev) => [...prev, message]);
+  }
+
+  function stopDownloads() {
+    setIsCancelling(true);
+    addLog("🛑 Stopping downloads...");
+    
+    // Store how many we're skipping
+    const queuedCount = downloadQueueRef.current.length;
+    const activeCount = activeDownloadsRef.current;
+    
+    // Clear download queue to prevent new downloads
+    downloadQueueRef.current = [];
+    
+    // Close EventSource if it exists
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    
+    // Wait for active downloads to finish before finalizing (with timeout safeguard)
+    const startWait = Date.now();
+    const maxWaitTime = 60000; // 60 seconds max wait
+    
+    const checkComplete = setInterval(() => {
+      const elapsed = Date.now() - startWait;
+      
+      if (activeDownloadsRef.current === 0 || elapsed > maxWaitTime) {
+        clearInterval(checkComplete);
+        
+        if (elapsed > maxWaitTime) {
+          addLog(`⚠️ Forced cancellation after ${(elapsed / 1000).toFixed(1)}s (${activeDownloadsRef.current} downloads still active)`);
+        }
+        
+        setPhase("cancelled");
+        setSubmitting(false);
+        isFinishingRef.current = false;
+        addLog(`❌ Cancelled. Completed ${activeCount} in-flight downloads, skipped ${queuedCount} queued.`);
+        
+        // Store final download metrics
+        if (downloadStartTimeRef.current) {
+          const endTime = Date.now();
+          setDownloadEndTime(endTime);
+          const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
+          const megabytesDownloaded = totalBytesDownloadedRef.current / (1024 * 1024);
+          setFinalDownloadTime(totalTime);
+          if (totalTime > 0) {
+            setFinalAvgSpeed(megabytesDownloaded / totalTime);
+          }
+        }
+      }
+    }, 200);
+  }
+
+  function handleYearToggle(yearValue) {
+    setSelectedYears((prev) => {
+      if (yearValue === "all") {
+        return prev.includes("all") ? [] : ["all"];
+      } else {
+        const newSelection = prev.filter((y) => y !== "all");
+        if (newSelection.includes(yearValue)) {
+          return newSelection.filter((y) => y !== yearValue);
+        } else {
+          return [...newSelection, yearValue];
+        }
+      }
+    });
   }
 
   async function selectDownloadDirectory() {
@@ -73,14 +188,37 @@ function App() {
   async function processDownloadQueue(jobId) {
     while (
       downloadQueueRef.current.length > 0 &&
-      activeDownloadsRef.current < maxConcurrentDownloads
+      activeDownloadsRef.current < maxConcurrentDownloads &&
+      !isCancelling
     ) {
       const fileInfo = downloadQueueRef.current.shift();
       activeDownloadsRef.current++;
 
       downloadFileWithStructure(jobId, fileInfo)
-        .then(() => {
-          setFilesDownloaded((prev) => prev + 1);
+        .then((bytesDownloaded) => {
+          // Count successful download
+          setFilesDownloaded((prev) => {
+            const newCount = prev + 1;
+            filesDownloadedRef.current = newCount; // Keep ref in sync
+            return newCount;
+          });
+          
+          // Track bytes and calculate speed in MB/s (skip if fallback download)
+          if (bytesDownloaded && bytesDownloaded > 0) {
+            setTotalBytesDownloaded((prev) => {
+              const newTotal = prev + bytesDownloaded;
+              totalBytesDownloadedRef.current = newTotal;
+              
+              // Update download speed in MB/s
+              if (downloadStartTimeRef.current) {
+                const elapsed = (Date.now() - downloadStartTimeRef.current) / 1000; // seconds
+                const megabytes = newTotal / (1024 * 1024);
+                const speed = megabytes / elapsed;
+                setDownloadSpeed(speed);
+              }
+              return newTotal;
+            });
+          }
         })
         .catch(() => {
           setFailed((prev) => prev + 1);
@@ -90,7 +228,7 @@ function App() {
           processDownloadQueue(jobId);
         });
 
-      await sleep(100);
+      await sleep(50);
     }
   }
 
@@ -120,6 +258,7 @@ function App() {
             fileInfo.meetingId,
             { create: true }
           );
+          
           const fileHandle = await meetingDir.getFileHandle(filename, {
             create: true,
           });
@@ -134,10 +273,10 @@ function App() {
           const blob = await response.blob();
           await writable.write(blob);
           await writable.close();
-          return;
+          return blob.size;
         } else {
           fallbackDownload(proxyUrl, filename);
-          return;
+          return 0; // Can't track size for fallback downloads
         }
       } catch (err) {
         if (attempt === retries) {
@@ -181,6 +320,29 @@ function App() {
     setStartedAt(null);
     setEndedAt(null);
     setElapsed(null);
+    setDownloadSpeed(0);
+    setDownloadStartTime(null);
+    setDownloadEndTime(null);
+    setFinalDownloadTime(null);
+    setFinalAvgSpeed(null);
+    setTotalBytesDownloaded(0);
+    setCurrentDownloadTime("00:00:00");
+    setIsCancelling(false);
+    downloadQueueRef.current = [];
+    activeDownloadsRef.current = 0;
+    totalFilesExpectedRef.current = 0;
+    downloadStartTimeRef.current = null;
+    filesDownloadedRef.current = 0;
+    totalBytesDownloadedRef.current = 0;
+    isFinishingRef.current = false;
+    seenFilesRef.current = new Set(); // Reset unique file tracking
+
+    if (selectedYears.length === 0) {
+      addLog("⚠️ Please select at least one year");
+      setSubmitting(false);
+      setPhase("idle");
+      return;
+    }
 
     try {
       const res = await fetch("/api/crawl", {
@@ -189,13 +351,14 @@ function App() {
         body: JSON.stringify({
           state,
           district,
-          year,
+          years: selectedYears,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { jobId } = await res.json();
       setJobId(jobId);
-      addLog(`🚀 Started job ${jobId} for ${state}/${district}/${year}`);
+      const yearStr = selectedYears.includes("all") ? "all years" : selectedYears.join(", ");
+      addLog(`🚀 Started job ${jobId} for ${state}/${district} - ${yearStr}`);
       connectSSE(jobId);
     } catch (e) {
       addLog(`❌ Failed to start: ${e.message}`);
@@ -208,15 +371,22 @@ function App() {
     const es = new EventSource(
       `/api/crawl/stream?jobId=${encodeURIComponent(jobId)}`
     );
+    eventSourceRef.current = es;
 
     es.addEventListener("open", () => {
       addLog("🔌 Connected to job stream.");
     });
 
-    es.addEventListener("error", () => {
-      addLog("⚠️ Stream error/closed.");
+    es.addEventListener("error", (evt) => {
+      // Only log error if it's not a normal close during finishing phase
+      if (!isFinishingRef.current) {
+        addLog("⚠️ Stream connection error.");
+      }
       es.close();
-      setSubmitting(false);
+      // Don't set submitting to false during finishing - let downloads complete
+      if (!isFinishingRef.current) {
+        setSubmitting(false);
+      }
     });
 
     es.addEventListener("log", (evt) => {
@@ -231,11 +401,8 @@ function App() {
         const p = JSON.parse(evt.data);
         setPhase(p.phase || "running");
         if (typeof p.meetings === "number") setMeetings(p.meetings);
-        if (typeof p.filesDiscovered === "number")
-          setFilesDiscovered(p.filesDiscovered);
-        if (typeof p.filesDownloaded === "number")
-          setFilesDownloaded(p.filesDownloaded);
-        if (typeof p.failed === "number") setFailed(p.failed);
+        // Don't update filesDiscovered from server - frontend tracks unique files
+        // Don't update filesDownloaded from server - frontend tracks its own downloads
         if (p.startedAt) setStartedAt(p.startedAt);
       } catch {}
     });
@@ -243,10 +410,33 @@ function App() {
     es.addEventListener("file", (evt) => {
       try {
         const f = JSON.parse(evt.data);
-        setFiles((prev) => [f, ...prev].slice(0, 1000)); // keep last 1000
+        
+        // Create unique key for this file: year/meetingId/filename
+        const filename = f.filename || f.url?.split('/').pop() || 'file';
+        const fileKey = `${f.year}/${f.meetingId}/${filename}`;
+        
+        // Skip if we've already seen this exact file
+        if (seenFilesRef.current.has(fileKey)) {
+          return; // Skip duplicate
+        }
+        
+        // Mark as seen
+        seenFilesRef.current.add(fileKey);
+        
+        setFiles((prev) => [f, ...prev]); // keep all files
+        
+        // Increment filesDiscovered for unique files only
+        setFilesDiscovered((prev) => prev + 1);
 
         if (autoDownload && f.url && f.year && f.meetingId) {
+          // Start download timer on first file
+          if (!downloadStartTimeRef.current && downloadQueueRef.current.length === 0) {
+            const now = Date.now();
+            setDownloadStartTime(now);
+            downloadStartTimeRef.current = now;
+          }
           downloadQueueRef.current.push(f);
+          totalFilesExpectedRef.current++;
           processDownloadQueue(jobId);
         }
       } catch {}
@@ -255,13 +445,37 @@ function App() {
     es.addEventListener("summary", (evt) => {
       try {
         const s = JSON.parse(evt.data);
-        setEndedAt(s.endedAt || null);
-        setElapsed(s.elapsed || null);
-        setPhase("done");
-        addLog("🎉 Finished.");
+        setPhase("finishing");
+        isFinishingRef.current = true;
+        addLog(`📊 Discovery complete. Waiting for ${downloadQueueRef.current.length + activeDownloadsRef.current} remaining downloads...`);
+        
+        // Wait for all downloads to finish before showing final summary
+        const checkComplete = setInterval(() => {
+          if (downloadQueueRef.current.length === 0 && activeDownloadsRef.current === 0) {
+            clearInterval(checkComplete);
+            
+            // Store final download metrics using current ref values
+            const endTime = Date.now();
+            setDownloadEndTime(endTime);
+            if (downloadStartTimeRef.current) {
+              const totalTime = (endTime - downloadStartTimeRef.current) / 1000;
+              const megabytesDownloaded = totalBytesDownloadedRef.current / (1024 * 1024);
+              setFinalDownloadTime(totalTime);
+              // Guard against division by zero
+              if (totalTime > 0) {
+                setFinalAvgSpeed(megabytesDownloaded / totalTime);
+              }
+            }
+            
+            setEndedAt(s.endedAt || null);
+            setElapsed(s.elapsed || null);
+            setPhase("done");
+            addLog("🎉 All downloads finished!");
+            es.close();
+            setSubmitting(false);
+          }
+        }, 500);
       } catch {}
-      es.close();
-      setSubmitting(false);
     });
   }
 
@@ -292,12 +506,16 @@ function App() {
               background:
                 phase === "done"
                   ? "#dcfce7"
+                  : phase === "cancelled"
+                  ? "#fee2e2"
                   : phase === "idle"
                   ? "#e2e8f0"
                   : "#dbeafe",
               color:
                 phase === "done"
                   ? "#166534"
+                  : phase === "cancelled"
+                  ? "#991b1b"
                   : phase === "idle"
                   ? "#334155"
                   : "#1e40af",
@@ -315,7 +533,7 @@ function App() {
             boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
             padding: 16,
             display: "grid",
-            gridTemplateRows: "1fr 1fr 70px 110px",
+            gridTemplateRows: "auto auto auto auto auto",
             gap: 12,
             marginBottom: 16,
           }}
@@ -357,25 +575,55 @@ function App() {
           </div>
 
           <div>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>Year</label>
-            <select
+            <label style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: "block" }}>
+              Year(s) - Select multiple
+            </label>
+            <div
               style={{
-                marginTop: 6,
-                width: "99%",
+                maxHeight: 180,
+                overflowY: "auto",
                 border: "1px solid #e2e8f0",
                 borderRadius: 12,
-                padding: "10px 12px",
+                padding: "8px",
+                background: "#fff",
               }}
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              required
             >
               {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
+                <label
+                  key={y}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    borderRadius: 6,
+                    transition: "background 0.15s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedYears.includes(y)}
+                    onChange={() => handleYearToggle(y)}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      cursor: "pointer",
+                    }}
+                  />
+                  <span style={{ fontSize: 14, color: "#334155" }}>
+                    {y === "all" ? "All years" : y}
+                  </span>
+                </label>
               ))}
-            </select>
+            </div>
+            {selectedYears.length === 0 && (
+              <small style={{ color: "#ef4444", fontSize: 12, marginTop: 4, display: "block" }}>
+                Please select at least one year
+              </small>
+            )}
           </div>
           <div>
             <label
@@ -446,12 +694,12 @@ function App() {
             </small>
           </div>
 
-          <div style={{ display: "flex", alignItems: "end" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
             <button
               type="submit"
               disabled={submitting}
               style={{
-                width: "100%",
+                flex: 1,
                 borderRadius: 12,
                 padding: "10px 14px",
                 fontWeight: 600,
@@ -463,6 +711,24 @@ function App() {
             >
               {submitting ? "Running…" : "Start Crawl"}
             </button>
+            {submitting && !isCancelling && (
+              <button
+                type="button"
+                onClick={stopDownloads}
+                style={{
+                  borderRadius: 12,
+                  padding: "10px 14px",
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: "#dc2626",
+                  cursor: "pointer",
+                  border: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Stop Downloads
+              </button>
+            )}
           </div>
         </form>
 
@@ -478,6 +744,18 @@ function App() {
           <StatCard label="Files Found" value={filesDiscovered} />
           <StatCard label="Downloaded" value={filesDownloaded} />
           <StatCard label="Failed" value={failed} />
+          <StatCard 
+            label="Total Size" 
+            value={formatBytes(totalBytesDownloaded)} 
+          />
+          <StatCard 
+            label="Speed" 
+            value={downloadSpeed > 0 ? `${downloadSpeed.toFixed(2)} MB/s` : "—"} 
+          />
+          <StatCard 
+            label="Download Time" 
+            value={currentDownloadTime} 
+          />
         </section>
 
         <section
@@ -552,7 +830,7 @@ function App() {
               }}
             >
               <h2 style={{ fontWeight: 600 }}>Recent Files</h2>
-              <small style={{ color: "#64748b" }}>showing last 1000</small>
+              <small style={{ color: "#64748b" }}>{files.length} files</small>
             </div>
             <div style={{ height: 290, overflow: "auto" }}>
               <table
@@ -573,13 +851,16 @@ function App() {
                     <th style={{ textAlign: "left", padding: "8px 8px" }}>
                       Meeting
                     </th>
+                    <th style={{ textAlign: "left", padding: "8px 8px" }}>
+                      Link
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {files.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={3}
+                        colSpan={4}
                         style={{
                           padding: 24,
                           textAlign: "center",
@@ -608,6 +889,26 @@ function App() {
                           }}
                         >
                           {f.meetingId || "—"}
+                        </td>
+                        <td style={{ padding: "8px 8px" }}>
+                          {f.url ? (
+                            <a
+                              href={f.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: "#2563eb",
+                                textDecoration: "none",
+                                fontSize: 13,
+                              }}
+                              onMouseEnter={(e) => e.target.style.textDecoration = "underline"}
+                              onMouseLeave={(e) => e.target.style.textDecoration = "none"}
+                            >
+                              Link
+                            </a>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                       </tr>
                     ))
@@ -644,8 +945,27 @@ function App() {
             </div>
             <div>Started: {startedAt || "—"}</div>
             <div>Ended: {endedAt || "—"}</div>
+            <div>Discovery: {elapsed || "—"}</div>
+            <div>
+              Downloads: {filesDownloaded} / {filesDiscovered}
+              {filesDiscovered > 0 && ` (${((filesDownloaded / filesDiscovered) * 100).toFixed(1)}%)`}
+            </div>
+            <div>
+              Download Time: {
+                finalDownloadTime !== null
+                  ? formatTime(finalDownloadTime)
+                  : downloadStartTime && phase !== "idle"
+                  ? `${formatTime((Date.now() - downloadStartTime) / 1000)} (ongoing)`
+                  : "—"
+              }
+            </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              Elapsed: {elapsed || "—"}
+              {phase === "done" && filesDownloaded > 0 && finalAvgSpeed !== null && (
+                <span>
+                  Avg Speed: {finalAvgSpeed.toFixed(2)} MB/s
+                  {failed > 0 && ` • ${failed} failed`}
+                </span>
+              )}
             </div>
           </div>
         </section>
